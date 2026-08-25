@@ -23,8 +23,8 @@
  * never hidden (AUTO_HIDE_ANYTHING_AMBIGUOUS stays false).
  */
 
-const ANNOTATED_ATTR = "data-syqf-annotated";
-const COUNT_CLASS = "syqf-count";
+const ANNOTATED_ATTR = "data-safwa-annotated";
+const COUNT_CLASS = "safwa-count";
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
 
 function digits(n, persian) {
@@ -33,10 +33,10 @@ function digits(n, persian) {
 
 function ensureBadge(node, kind, text, dir) {
   if (!node) return null;
-  let badge = node.querySelector(`.syqf-badge.syqf-badge--${kind}`);
+  let badge = node.querySelector(`.safwa-badge.safwa-badge--${kind}`);
   if (!badge) {
     badge = document.createElement("span");
-    badge.className = `syqf-badge syqf-badge--${kind}`;
+    badge.className = `safwa-badge safwa-badge--${kind}`;
     node.appendChild(badge);
   }
   badge.setAttribute("dir", dir);
@@ -49,7 +49,7 @@ function setCountBadge(originalNode, count, config) {
   let badge = originalNode.querySelector(`.${COUNT_CLASS}`);
   if (!badge) {
     badge = document.createElement("span");
-    badge.className = `syqf-badge ${COUNT_CLASS}`;
+    badge.className = `safwa-badge ${COUNT_CLASS}`;
     originalNode.appendChild(badge);
   }
   badge.setAttribute("dir", config.UI_DIRECTION);
@@ -74,9 +74,9 @@ export function render(decision, config) {
 
   // Idempotency: a row can be re-annotated after a container re-render, and its
   // new decision may differ (state was rebuilt). Clear previous annotations so a
-  // stale class (especially syqf-collapsed) can never hide a now-kept question.
-  node.classList.remove("syqf-primary", "syqf-joined", "syqf-dim", "syqf-collapsed");
-  for (const b of node.querySelectorAll(".syqf-badge")) b.remove();
+  // stale class (especially safwa-collapsed) can never hide a now-kept question.
+  node.classList.remove("safwa-primary", "safwa-joined", "safwa-dim", "safwa-collapsed");
+  for (const b of node.querySelectorAll(".safwa-badge")) b.remove();
 
   switch (decision.type) {
     case "greeting":
@@ -85,11 +85,11 @@ export function render(decision, config) {
       break;
 
     case "primary":
-      node.classList.add("syqf-primary");
+      node.classList.add("safwa-primary");
       break;
 
     case "continuation":
-      node.classList.add("syqf-joined");
+      node.classList.add("safwa-joined");
       ensureBadge(node, "joined", config.LABELS.joined, dir);
       break;
 
@@ -109,9 +109,9 @@ export function render(decision, config) {
       setCountBadge(original, decision.count, config);
       const isExact = decision.kind === "exact";
       if (isExact && config.AUTO_COLLAPSE_EXACT_DUPLICATES && !config.AUTO_HIDE_ANYTHING_AMBIGUOUS) {
-        node.classList.add("syqf-collapsed"); // data retained in state; only hidden
+        node.classList.add("safwa-collapsed"); // data retained in state; only hidden
       } else {
-        node.classList.add("syqf-dim");
+        node.classList.add("safwa-dim");
         ensureBadge(node, "dup", config.LABELS.possibleDuplicate, dir);
       }
       break;
@@ -127,12 +127,12 @@ export function render(decision, config) {
         !config.HIDE_EXTRA_QUESTIONS ||
         (config.DIM_IN_WINDOW_EXTRAS && decision.withinWindow);
       if (keepVisible) {
-        node.classList.add("syqf-dim");
+        node.classList.add("safwa-dim");
         ensureBadge(node, "extra", config.LABELS.secondQuestion, dir);
       } else {
         // Filter it out of the feed entirely. Data is retained in state; the
         // popup OFF switch reveals StreamYard's full native feed again.
-        node.classList.add("syqf-collapsed");
+        node.classList.add("safwa-collapsed");
       }
       break;
     }

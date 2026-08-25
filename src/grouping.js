@@ -93,6 +93,15 @@ function mergeContinuation(block, comment) {
  *   { type: 'duplicate',    comment, target, count }
  *   { type: 'primary',      comment, block }
  *   { type: 'extra',        comment, block, withinWindow }  // withinWindow flags an in-window (ambiguous) extra
+ *
+ * When the regex pipeline is uncertain about a "primary" decision (the comment
+ * might be a semantic duplicate the token-set Jaccard couldn't catch), the
+ * decision also carries `needsLlmReview: true` and `recentQuestions` (an array
+ * of recent unique questions for LLM comparison). content.js uses this to
+ * asynchronously ask the LLM for a second opinion. If the LLM says "duplicate",
+ * the comment is re-annotated as a semantic duplicate (dimmed + badged, never
+ * hidden). If the LLM is unavailable or says "primary", the regex decision
+ * stands. The pipeline order and existing tests are unchanged.
  */
 export function processComment(comment, state, config) {
   // 1 + 2. Normalize. Attach the derived fields to the comment.
@@ -180,8 +189,17 @@ export function processComment(comment, state, config) {
     record.hasPrimaryQuestion = true;
     const block = openBlock(comment, "question");
     record.open = block;
+
+    // Collect recent questions BEFORE registering this one, so the current
+    // comment is not included in its own comparison set. When this is the first
+    // question in the session, recentQuestions is empty and needsLlmReview is
+    // false (nothing to compare against).
+    const recentQuestions = collectRecentQuestions(state, config.LLM_MAX_CONTEXT_COMMENTS);
+    const needsLlmReview = recentQuestions.length > 0;
+
     registerSignature(comment, state, config);
-    return { type: "primary", comment, block };
+
+    return { type: "primary", comment, block, needsLlmReview, recentQuestions };
   }
 
   // The handle already used its one logical question -> flag this as extra.
@@ -193,4 +211,35 @@ export function processComment(comment, state, config) {
   record.open = block;
   registerSignature(comment, state, config);
   return { type: "extra", comment, block, withinWindow };
+}
+
+/**
+ * Collect recent unique questions from the signature store for LLM comparison.
+ * Returns an array of { handle, platform, displayText } pulled from the most
+ * recently registered signatures (newest first, excluding the current comment).
+ *
+ * @param {object} state - the session state (signatures + recentKeys)
+ * @param {number} max - maximum number of questions to return
+ * @returns {array}
+ */
+function collectRecentQuestions(state, max) {
+  if (!state.recentKeys || state.recentKeys.length === 0) return [];
+
+  const result = [];
+  const seen = new Set();
+  // Walk recentKeys newest-first, collecting unique display texts.
+  for (let i = state.recentKeys.length - 1; i >= 0 && result.length < max; i--) {
+    const key = state.recentKeys[i];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const entry = state.signatures.get(key);
+    if (entry && entry.displayText) {
+      result.push({
+        handle: entry.handle,
+        platform: entry.platform,
+        displayText: entry.displayText,
+      });
+    }
+  }
+  return result;
 }

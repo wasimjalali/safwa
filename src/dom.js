@@ -11,7 +11,7 @@
 
 import { SELECTORS } from "./config.js";
 
-const TAG = "[Bayān]";
+const TAG = "[Ṣafwa]";
 
 // Warn at most once per failure kind so a broken selector cannot spam the
 // console hundreds of times under live comment volume.

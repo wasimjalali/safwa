@@ -1,4 +1,4 @@
-# Bayān (بیان) - Live Q&A Filter for StreamYard
+# Ṣafwa (صفوة) - Live Q&A Filter for StreamYard
 
 **Clean up your live stream's Q&A comments as they come in (Persian only).**
 
@@ -6,7 +6,7 @@
 ![Chrome Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)
 
-**Bayān** (Arabic/Quranic: *clear exposition, eloquence, clarity*) is a Chrome (Manifest V3) extension that cleans the live comment feed during a StreamYard Q&A session. It is built for **Dari / Persian** comments: the audience asks questions in Dari, and the teacher answers them orally. It runs while you stream and does three things in real time:
+**Ṣafwa** (Arabic/Quranic: *the clear essence, the refined best part after removing the redundant*) is a Chrome (Manifest V3) extension that cleans the live comment feed during a StreamYard Q&A session. It is built for **Dari / Persian** comments: the audience asks questions in Dari, and the teacher answers them orally. It runs while you stream and does three things in real time:
 
 1. Collapses repeated questions into a single entry with a count.
 2. Merges a question that got split across two comments back into one block.
@@ -26,9 +26,9 @@ Because we read the page instead of an API, a StreamYard layout change can break
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select this project folder (the one with `manifest.json`).
 4. Open a StreamYard studio (`https://streamyard.com/...`) with the comments panel visible.
-5. Open DevTools (`Cmd+Option+I` on Mac) and check the Console. You should see lines tagged `[Bayān]`.
+5. Open DevTools (`Cmd+Option+I` on Mac) and check the Console. You should see lines tagged `[Ṣafwa]`.
 
-Click the Bayān icon in the toolbar to open the popup: one switch turns the filter on or off (persisted, applied to the live feed instantly). Off restores StreamYard's native feed exactly. Everything else is configured in `src/config.js`; there is no settings screen in v1.
+Click the Ṣafwa icon in the toolbar to open the popup: one switch turns the filter on or off (persisted, applied to the live feed instantly). Off restores StreamYard's native feed exactly. Everything else is configured in `src/config.js`; there is no settings screen in v1.
 
 ## Project layout
 
@@ -39,10 +39,11 @@ src/
   dom.js               ALL StreamYard selectors + comment extraction (the only fragile layer)
   normalize.js         text normalization (matchKey + displayText)
   dedup.js             exact + fuzzy duplicate detection
-  grouping.js          continuation detection, one-question-per-person, pipeline order
+  grouping.js          continuation detection, one-question-per-person, pipeline order, LLM escalation flags
   state.js             handle map, signature store, recent buffer
   ui.js                in-place annotation, badges, collapsing
-  config.js            all thresholds, lists, feature flags, AND the StreamYard selectors
+  llm-classifier.js    async LLM semantic-duplicate classifier (calls self-hosted vLLM)
+  config.js            all thresholds, lists, feature flags, LLM settings, AND the StreamYard selectors
 popup/
   popup.html|css|js    the toolbar popup: one on/off switch (chrome.storage.local)
 fonts/
@@ -50,8 +51,14 @@ fonts/
 styles.css             badge + dim styles, @font-face, on/off CSS gating
 test/
   mock-comments.js     scripted comment streams for testing without StreamYard
-  run-tests.js         Node test runner for the matching core
+  run-tests.js         Node test runner for the matching core (37 tests)
   demo.html|js         visual simulation harness (npm run demo)
+deploy/
+  Dockerfile           vLLM server image for Ornith-1.5 (9B or 35B)
+  launch.sh            one-command server startup on EC2
+  teardown.sh          stop container + optionally stop EC2 instance
+  health-check.sh      verify the LLM server is up and classifying correctly
+  README.md            step-by-step AWS setup guide with resource IDs
 ```
 
 ## The processing pipeline (order is fixed)
@@ -110,10 +117,45 @@ Every knob lives in `src/config.js`. There is no settings UI in v1; you edit the
 
 ## Out of scope for v1
 
-- Semantic deduplication (two people asking the same thing in totally different words). Needs an LLM/embedding call. Deferred to v2.
+- ~~Semantic deduplication (two people asking the same thing in totally different words). Needs an LLM/embedding call. Deferred to v2.~~ **Added in v2 (see below).**
 - Cross-platform identity linking. "Ahmad" on YouTube and "Ahmad" on Facebook cannot be reliably confirmed as the same person. The one-question rule applies within the same platform and handle only.
 - Any auto-hiding of ambiguous cases. Marking only.
 - A settings UI. Config lives in `config.js`.
+
+## v2: LLM Semantic Layer (combo architecture)
+
+The regex pipeline handles 80-90% of comments instantly. Its one gap is **semantic deduplication**: two people asking the same question in completely different words with zero shared tokens.
+
+v2 adds a self-hosted LLM as a second opinion for exactly these cases. The architecture is a **combo**, not LLM-alone:
+
+```
+New comment -> regex pipeline (instant, 0ms)
+  -> High confidence? -> act immediately
+  -> Ambiguous (might be semantic dup)? -> async LLM call (50-200ms)
+     -> LLM says "duplicate" -> dim + badge (never hide)
+     -> LLM unavailable or says "primary" -> regex decision stands
+```
+
+### What changed
+
+- **`src/llm-classifier.js`** (new): calls a self-hosted vLLM server running Ornith-1.5 (9B or 35B-A3B). Uses `fetch()` with an 8s timeout. Falls back to the regex decision on any failure.
+- **`src/grouping.js`**: `processComment` now sets `needsLlmReview: true` on "primary" decisions when there are prior questions to compare against. The pipeline order and all existing decisions are unchanged.
+- **`src/content.js`**: after rendering the regex decision, if `needsLlmReview` is true, asynchronously calls the LLM. If it says "duplicate", re-annotates the node (dim + teal "semantic duplicate" badge). Never hides.
+- **`src/config.js`**: `LLM_ENABLED`, `LLM_ENDPOINT`, `LLM_MODEL`, `LLM_TIMEOUT_MS`, `LLM_MAX_CONTEXT_COMMENTS`.
+- **`styles.css`**: `.safwa-badge--semantic` (teal badge for LLM-flagged dups).
+- **`manifest.json`**: `host_permissions` now allows `http://*:8000/*` and `http://*:8080/*` for the LLM endpoint.
+- **`deploy/`**: Dockerfile, launch/teardown/health-check scripts, and step-by-step AWS setup guide.
+
+### What did NOT change
+
+- The regex pipeline still runs first and handles all high-confidence cases instantly.
+- Only exact duplicates auto-collapse. LLM-flagged semantic dups are dimmed + badged, never hidden.
+- All 32 original tests pass unchanged. 5 new tests cover the LLM escalation flags.
+- `LLM_ENABLED: false` reverts to pure v1 behavior.
+
+### Self-hosting (data sovereignty)
+
+The LLM runs on your own AWS EC2 g5.xlarge (A10G, 24GB VRAM). No comment text leaves your server. See `deploy/README.md` for step-by-step setup. Cost: ~$21/month at 4 hours/week, from AWS credits.
 
 ## Build status
 
@@ -124,9 +166,10 @@ This project is built in phases (spec Section 14). Current status:
 - [x] Phase 3: Matching core, proven on mocks (`npm test`: 32/32, acceptance criteria 1-5)
 - [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; gated behind `CONFIRMED`)
 - [x] Phase 5: UI layer (in-place annotation with confidence tiers)
-- [~] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
+- [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
+- [x] Phase 7: LLM semantic layer (combo architecture). Self-hosted Ornith-1.5 on AWS EC2. 37/37 tests. See `deploy/README.md`.
 - [x] Dari/Persian localization: script normalization, Dari word lists + labels, RTL UI, proven on Dari fixtures (`npm test`)
-- [x] Brand: name **Bayān**, crescent logo (`icons/`, master at `icons/logo.svg`), premium emerald + gold + ivory palette, polished RTL badges
+- [x] Brand: name **Ṣafwa**, crescent logo (`icons/`, master at `icons/logo.svg`), premium emerald + gold + ivory palette, polished RTL badges
 - [x] Popup with on/off switch (persisted in `chrome.storage.local`; off restores the native feed exactly)
 - [x] Bundled Vazirmatn variable font (OFL) for crisp Persian rendering in badges, popup and demo
 

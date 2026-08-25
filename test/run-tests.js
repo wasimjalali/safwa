@@ -277,5 +277,48 @@ test("a bare greeting normalizes to isGreetingOnly", () => {
 });
 
 // =====================================================================
+group("Semantic dedup - LLM escalation flags (regex cannot catch these)");
+
+test("semantic duplicate (perfume/fasting): regex says primary, flags for LLM review", () => {
+  const { decisions } = runStream(STREAMS.semanticPerfumeFasting);
+  assert.equal(decisions[0].type, "primary");
+  // Second comment asks the same thing in different words - regex can't catch it
+  assert.equal(decisions[1].type, "primary");
+  // But it should be flagged for LLM review (there's a prior question to compare)
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.ok(decisions[1].recentQuestions.length > 0, "should have recent questions for LLM");
+});
+
+test("semantic duplicate (fasting/travel): regex says primary, flags for LLM review", () => {
+  const { decisions } = runStream(STREAMS.semanticFastingTravel);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "primary");
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.ok(decisions[1].recentQuestions.length > 0);
+});
+
+test("semantic distinct (Friday prayer vs fasting, both about travel): both primary, LLM review flagged", () => {
+  const { decisions } = runStream(STREAMS.semanticDistinctTravel);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "primary");
+  // The second one is flagged for LLM review - the LLM must say "primary" here
+  assert.equal(decisions[1].needsLlmReview, true);
+});
+
+test("first comment in a stream has no LLM review (nothing to compare against)", () => {
+  const { decisions } = runStream(STREAMS.exactTriplicate);
+  assert.equal(decisions[0].type, "primary");
+  // First comment: no prior questions, so needsLlmReview should be false
+  assert.equal(decisions[0].needsLlmReview, false);
+});
+
+test("exact duplicate is NOT flagged for LLM review (regex already caught it)", () => {
+  const { decisions } = runStream(STREAMS.exactTriplicate);
+  assert.equal(decisions[1].type, "duplicate");
+  // Duplicates don't need LLM review - the regex already handled them
+  assert.equal(decisions[1].needsLlmReview, undefined);
+});
+
+// =====================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed > 0 ? 1 : 0;

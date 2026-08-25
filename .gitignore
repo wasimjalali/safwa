@@ -6,3 +6,6 @@ node_modules/
 .playwright-mcp/
 /bayan-*.png
 /dari-*.png
+
+# one-off LLM test harness (not part of the extension)
+/llm-test/
