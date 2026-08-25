@@ -9,3 +9,7 @@ node_modules/
 
 # one-off LLM test harness (not part of the extension)
 /llm-test/
+
+# Wrangler local state
+.wrangler/
+deploy/cloudflare/.wrangler/

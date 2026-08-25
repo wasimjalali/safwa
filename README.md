@@ -42,7 +42,7 @@ src/
   grouping.js          continuation detection, one-question-per-person, pipeline order, LLM escalation flags
   state.js             handle map, signature store, recent buffer
   ui.js                in-place annotation, badges, collapsing
-  llm-classifier.js    async LLM semantic-duplicate classifier (calls self-hosted vLLM)
+  llm-classifier.js    async LLM semantic-duplicate classifier (Cloudflare Gemma 4)
   config.js            all thresholds, lists, feature flags, LLM settings, AND the StreamYard selectors
 popup/
   popup.html|css|js    the toolbar popup: one on/off switch (chrome.storage.local)
@@ -54,9 +54,8 @@ test/
   run-tests.js         Node test runner for the matching core (37 tests)
   demo.html|js         visual simulation harness (npm run demo)
 deploy/
-  Dockerfile           vLLM server image for Ornith-1.5 (9B or 35B)
-  launch.sh            one-command server startup on EC2
-  teardown.sh          stop container + optionally stop EC2 instance
+  cloudflare/          Gemma 4 Worker (Workers AI binding)
+  Dockerfile           leftover vLLM image (not the live path)
   health-check.sh      verify the LLM server is up and classifying correctly
   README.md            step-by-step AWS setup guide with resource IDs
 ```
@@ -138,7 +137,7 @@ New comment -> regex pipeline (instant, 0ms)
 
 ### What changed
 
-- **`src/llm-classifier.js`** (new): calls a self-hosted vLLM server running Ornith-1.5 (9B or 35B-A3B). Uses `fetch()` with an 8s timeout. Falls back to the regex decision on any failure.
+- **`src/llm-classifier.js`**: calls a Cloudflare Worker that runs Gemma 4 26B. Uses `fetch()` with an 8s timeout. Falls back to the regex decision on any failure.
 - **`src/grouping.js`**: `processComment` now sets `needsLlmReview: true` on "primary" decisions when there are prior questions to compare against. The pipeline order and all existing decisions are unchanged.
 - **`src/content.js`**: after rendering the regex decision, if `needsLlmReview` is true, asynchronously calls the LLM. If it says "duplicate", re-annotates the node (dim + teal "semantic duplicate" badge). Never hides.
 - **`src/config.js`**: `LLM_ENABLED`, `LLM_ENDPOINT`, `LLM_MODEL`, `LLM_TIMEOUT_MS`, `LLM_MAX_CONTEXT_COMMENTS`.
@@ -155,7 +154,7 @@ New comment -> regex pipeline (instant, 0ms)
 
 ### Self-hosting (data sovereignty)
 
-The LLM runs on your own AWS EC2 g5.xlarge (A10G, 24GB VRAM). No comment text leaves your server. See `deploy/README.md` for step-by-step setup. Cost: ~$21/month at 4 hours/week, from AWS credits.
+The live LLM is **Gemma 4 26B** on Cloudflare Workers AI (`@cf/google/gemma-4-26b-a4b-it`). The extension talks to the `safwa-llm` Worker in `deploy/cloudflare` so the API token never sits in the Chrome package. Deploy with `wrangler deploy` from that folder.
 
 ## Build status
 
@@ -167,7 +166,7 @@ This project is built in phases (spec Section 14). Current status:
 - [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; gated behind `CONFIRMED`)
 - [x] Phase 5: UI layer (in-place annotation with confidence tiers)
 - [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
-- [x] Phase 7: LLM semantic layer (combo architecture). Self-hosted Ornith-1.5 on AWS EC2. 37/37 tests. See `deploy/README.md`.
+- [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. 37/37 tests.
 - [x] Dari/Persian localization: script normalization, Dari word lists + labels, RTL UI, proven on Dari fixtures (`npm test`)
 - [x] Brand: name **Ṣafwa**, crescent logo (`icons/`, master at `icons/logo.svg`), premium emerald + gold + ivory palette, polished RTL badges
 - [x] Popup with on/off switch (persisted in `chrome.storage.local`; off restores the native feed exactly)
