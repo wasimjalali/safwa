@@ -15,7 +15,8 @@
 
 const TAG = "[Ṣafwa]";
 
-const SYSTEM_PROMPT = `You are a live Q&A comment filter for an Islamic teacher's StreamYard live stream. The audience asks questions in Dari/Persian. Your job is to classify whether a new comment is a duplicate of a question already in the feed, even if the wording is completely different.
+const SYSTEM_PROMPT = `/no_think
+You are a live Q&A comment filter for an Islamic teacher's StreamYard live stream. The audience asks questions in Dari/Persian. Your job is to classify whether a new comment is a duplicate of a question already in the feed, even if the wording is completely different.
 
 Classify the new comment as exactly one of:
 - "duplicate": The same question as one already in the feed, asked in different words. Two comments are duplicates if they ask the same thing, even if no words are shared.
@@ -102,6 +103,7 @@ export async function classifyComment(newComment, recentQuestions, config) {
     ],
     temperature: 0.0,
     max_tokens: 64,
+    chat_template_kwargs: { enable_thinking: false },
   });
 
   const controller = new AbortController();
@@ -121,7 +123,8 @@ export async function classifyComment(newComment, recentQuestions, config) {
     }
 
     const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content ?? "";
+    const message = data?.choices?.[0]?.message ?? {};
+    const content = message.content || message.reasoning_content || "";
     const parsed = parseResponse(content);
 
     if (!parsed) {

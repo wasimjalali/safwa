@@ -24,7 +24,8 @@
     "https://streamyard.com/*",
     "https://*.streamyard.com/*",
     "http://*:8000/*",
-    "http://*:8080/*"
+    "http://*:8080/*",
+    "https://*.proxy.runpod.net/*"
   ],
   "content_scripts": [
     {
