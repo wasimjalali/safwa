@@ -1,6 +1,6 @@
 /*
- * popup.css - Ṣafwa popup. Same brand as the badges: deep emerald + gold +
- * ivory. RTL, Vazirmatn (bundled, OFL), one switch, nothing else to learn.
+ * popup.css - Ṣafwa. One job: on or off.
+ * Internal tool for a teacher. Ivory paper, one emerald accent, hairlines.
  */
 
 @font-face {
@@ -11,17 +11,14 @@
 }
 
 :root {
-  --emerald-1: #147a5b;
-  --emerald-2: #0b5a43;
-  --emerald-deep: #084536;
-  --gold-1: #ebce84;
-  --gold-2: #c8a24a;
-  --ink: #1f2a26;
-  --ink-soft: #5c6660;
-  --ivory: #fbf6e9;
-  --line: #e6e1d4;
+  --surface: #f7f3ea;
+  --surface-raised: #ffffff;
+  --ink: #14221c;
+  --ink-muted: #5e6a63;
+  --accent: #0e6b51;
+  --accent-deep: #0a3d32;
+  --line: #e4dfd2;
   --stone: #8a8474;
-
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -29,31 +26,31 @@
   box-sizing: border-box;
 }
 
+html,
 body {
-  width: 340px;
+  width: 320px;
   margin: 0;
-  font-family: "Vazirmatn", system-ui, Tahoma, sans-serif;
-  color: var(--ink);
-  background: var(--ivory);
+  background: var(--surface);
 }
 
-/* --- Header: emerald band, gold hairline, frosted status pill --- */
+body {
+  font-family: "Vazirmatn", system-ui, Tahoma, sans-serif;
+  color: var(--ink);
+}
 
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 18px;
-  background: var(--emerald-deep);
-  border-bottom: 2px solid var(--gold-2);
-  color: var(--ivory);
+  padding: 16px 18px 14px;
+  background: var(--accent-deep);
+  color: var(--surface);
 }
 
 .brand__logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
 }
 
 .brand__names {
@@ -63,47 +60,28 @@ body {
 
 .brand__fa {
   margin: 0;
-  font-size: 22px;
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: 0.2px;
-}
-
-.brand__en {
-  margin: 1px 0 0;
-  font-size: 11px;
-  font-weight: 500;
-  color: rgba(251, 246, 233, 0.75);
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-}
-
-.pill {
-  flex: 0 0 auto;
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 12.5px;
+  font-size: 20px;
   font-weight: 700;
-  color: var(--emerald-deep);
-  background: var(--gold-1);
-  border: 1px solid rgba(120, 90, 20, 0.4);
+  line-height: 1.2;
 }
 
-body.is-off .pill {
-  color: var(--ivory);
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
+.brand__status {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(247, 243, 234, 0.72);
 }
 
-/* --- Card: the switch row --- */
+body.is-off .brand__status {
+  color: rgba(247, 243, 234, 0.48);
+}
 
 .card {
-  margin: 16px;
-  padding: 16px 18px;
-  background: #fff;
+  margin: 14px 16px 8px;
+  padding: 14px 16px;
+  background: var(--surface-raised);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(31, 42, 38, 0.05), 0 6px 18px rgba(31, 42, 38, 0.07);
+  border-radius: 10px;
 }
 
 .switch-row {
@@ -119,58 +97,63 @@ body.is-off .pill {
 
 .switch-title {
   margin: 0;
-  font-size: 15.5px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 650;
 }
 
 .switch-hint {
   margin: 4px 0 0;
   font-size: 12.5px;
   line-height: 1.7;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
 }
-
-/* --- The switch itself --- */
 
 .switch {
   position: relative;
   flex: 0 0 auto;
-  width: 54px;
-  height: 31px;
+  width: 48px;
+  height: 28px;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--stone);
   cursor: pointer;
-  transition: background-color 0.2s var(--ease-out);
+  transition: background-color 150ms var(--ease-out), border-color 150ms var(--ease-out);
 }
 
 .switch[aria-checked="true"] {
-  background: var(--emerald-1);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch:hover {
+  filter: brightness(1.06);
+}
+
+.switch:active {
+  transform: scale(0.97);
 }
 
 .switch__knob {
   position: absolute;
-  top: 3px;
-  inset-inline-start: 3px;
-  width: 24px;
-  height: 24px;
+  top: 2px;
+  inset-inline-start: 2px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  transition: inset-inline-start 0.2s var(--ease-out);
+  box-shadow: 0 1px 2px rgba(20, 34, 28, 0.28);
+  transition: inset-inline-start 150ms var(--ease-out);
 }
 
 .switch[aria-checked="true"] .switch__knob {
-  inset-inline-start: calc(100% - 27px);
+  inset-inline-start: calc(100% - 24px);
 }
 
 .switch:focus-visible {
-  outline: 2px solid var(--gold-2);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-
-/* --- Footer: sign-off between fading hairlines --- */
 
 .foot {
   display: flex;
@@ -179,9 +162,8 @@ body.is-off .pill {
   gap: 8px;
   margin: 0 16px;
   padding: 10px 2px 14px;
-  border-top: 1px solid var(--line);
   font-size: 11.5px;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
 }
 
 .foot__version {
@@ -194,5 +176,9 @@ body.is-off .pill {
   .switch,
   .switch__knob {
     transition: none;
+  }
+
+  .switch:active {
+    transform: none;
   }
 }

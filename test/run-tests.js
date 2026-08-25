@@ -319,6 +319,20 @@ test("exact duplicate is NOT flagged for LLM review (regex already caught it)", 
   assert.equal(decisions[1].needsLlmReview, undefined);
 });
 
+test("synonym واجب/فرض: regex leaves both primary for LLM", () => {
+  const { decisions } = runStream(STREAMS.semanticWajibFard);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "primary");
+  assert.equal(decisions[1].needsLlmReview, true);
+});
+
+test("gold jewelry vs coins: regex leaves both primary for LLM", () => {
+  const { decisions } = runStream(STREAMS.trapZakatJewelryCoins);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "primary");
+  assert.equal(decisions[1].needsLlmReview, true);
+});
+
 // =====================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed > 0 ? 1 : 0;

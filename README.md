@@ -166,7 +166,7 @@ This project is built in phases (spec Section 14). Current status:
 - [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; gated behind `CONFIRMED`)
 - [x] Phase 5: UI layer (in-place annotation with confidence tiers)
 - [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
-- [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. 37/37 tests.
+- [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. 39/39 tests.
 - [x] Dari/Persian localization: script normalization, Dari word lists + labels, RTL UI, proven on Dari fixtures (`npm test`)
 - [x] Brand: name **Ṣafwa**, crescent logo (`icons/`, master at `icons/logo.svg`), premium emerald + gold + ivory palette, polished RTL badges
 - [x] Popup with on/off switch (persisted in `chrome.storage.local`; off restores the native feed exactly)

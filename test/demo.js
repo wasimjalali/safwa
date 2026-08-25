@@ -166,6 +166,16 @@ const SCENARIOS = [
     title: "LLM: related words, different questions (Friday prayer vs fasting in travel)",
     expect: "Both stay primary. Gemma 4 must not merge them.",
   },
+  {
+    key: "semanticWajibFard",
+    title: "LLM: same question, واجب vs فرض (zakat on gold)",
+    expect: "Regex leaves both primary. Gemma 4 should flag the second as a duplicate.",
+  },
+  {
+    key: "trapZakatJewelryCoins",
+    title: "LLM: same topic, different objects (gold jewelry vs gold coins)",
+    expect: "Both stay primary. Worn gold and minted gold are different asks.",
+  },
 ];
 
 async function playScenario(scenario, mount) {

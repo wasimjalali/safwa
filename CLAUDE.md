@@ -47,7 +47,7 @@ Key rules for v2:
 
 - The matching core (`normalize.js`, `dedup.js`, `grouping.js`, `state.js`) is pure: no DOM, no `chrome.*`, no globals. It must stay importable in plain Node so `test/run-tests.js` can prove it on `test/mock-comments.js`.
 - `content.js` is the browser bootstrap. It loads the ES-module core, wires the MutationObserver, and connects `dom.js` (extract) -> core (decide) -> `ui.js` (render). Keep browser-only concerns here and in `dom.js`/`ui.js`.
-- `llm-classifier.js` is browser-only (uses `fetch`). It calls the Cloudflare Worker, which runs Gemma 4. It is always called async, after the regex pipeline has already rendered its decision.
+- `llm-classifier.js` is browser-only (uses `fetch`). It calls the Cloudflare Worker, which runs Gemma 4. It is always called async, after the regex pipeline has already rendered its decision. The system prompt follows Gemma 4 docs: a real `system` role, thinking off (`chat_template_kwargs.enable_thinking: false`, no `<|think|>`, no `/no_think`), few-shot, question last. Keep `llm-test/eval.py` in lockstep.
 - The single source of truth for pipeline order is the orchestrator in `grouping.js`. Both `content.js` and the tests call it, so the order is never duplicated.
 
 ## How to verify
