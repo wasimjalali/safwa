@@ -91,6 +91,23 @@ export const CONFIG = {
   UI_DIRECTION: "rtl",
   USE_PERSIAN_DIGITS_IN_UI: false,
 
+  // --- LLM semantic classifier (combo architecture, v2) ---
+  //
+  // The regex pipeline handles 80-90% of comments instantly. When a comment
+  // is ambiguous (fuzzy match below threshold, or a potential semantic duplicate
+  // with zero shared tokens), it is sent to the self-hosted LLM for a second
+  // opinion. The LLM decision is advisory: it can mark a comment as a
+  // "semantic_duplicate" but never hides it. Only the regex pipeline's exact
+  // match can auto-collapse.
+  //
+  // The endpoint is your self-hosted vLLM server running Ornith-1.5 (9B or 35B)
+  // on an AWS EC2 g5.xlarge. See deploy/ for setup scripts.
+  LLM_ENABLED: true,
+  LLM_ENDPOINT: "http://127.0.0.1:8000/v1/chat/completions", // change to your EC2 public IP
+  LLM_MODEL: "Ornith-1.5-9B", // or "Ornith-1.5-35B-A3B"
+  LLM_TIMEOUT_MS: 8000, // fall back to regex if no response in 8s
+  LLM_MAX_CONTEXT_COMMENTS: 8, // send this many recent questions for comparison
+
   // Dari badge + popup labels. Edit the wording here; nothing else needs to
   // change. {n} in COUNT is replaced with the (optionally Persian) digit count.
   LABELS: {
@@ -98,6 +115,7 @@ export const CONFIG = {
     askedTimes: "{n} بار پرسیده شد", // "asked {n} times"
     possibleDuplicate: "شاید تکراری باشد", // "it may be a duplicate"
     secondQuestion: "سوال دوم این شخص", // "this person's second question"
+    semanticDuplicate: "احتمالاً تکراری (معنایی)", // "possibly duplicate (semantic)"
 
     // Popup (the bar that opens when the extension icon is clicked).
     popupTagline: "فلتر سوالات پخش زنده",          // "live stream question filter"
@@ -115,7 +133,7 @@ export const CONFIG = {
  * explicit `false` turns the filter off.
  */
 export const STORAGE_KEYS = {
-  enabled: "bayanEnabled",
+  enabled: "safwaEnabled",
 };
 
 /*

@@ -45,13 +45,13 @@ if (hasStorage) {
     // Rejection handler only (not a chained catch), so an exception inside
     // paint() above can't trigger a second paint call here.
     () => {
-      console.warn("[Bayān] could not read the saved state; showing enabled.");
+      console.warn("[Ṣafwa] could not read the saved state; showing enabled.");
       paint(enabled);
     }
   );
 } else {
   console.warn(
-    "[Bayān] chrome.storage unavailable (preview mode); the switch is not persisted."
+    "[Ṣafwa] chrome.storage unavailable (preview mode); the switch is not persisted."
   );
   paint(enabled);
 }

@@ -142,4 +142,32 @@ export const STREAMS = {
     comment("یونس", "youtube", "السلام علیکم", 0),
     comment("یونس", "youtube", "حکم نماز قضا چیست؟", 60000),
   ],
+
+  // --- Semantic dedup cases (regex CANNOT catch these; the LLM's job) ---
+  //
+  // The regex pipeline should classify both as "primary" (different words, no
+  // shared tokens), but the second one should carry needsLlmReview=true so the
+  // LLM can catch the semantic match.
+
+  // "Is using perfume while fasting a problem?" vs "Can a fasting person wear
+  // cologne?" - same question, zero shared tokens.
+  semanticPerfumeFasting: [
+    comment("فاطمه", "youtube", "آیا استفاده از عطر در حال روزه‌داری اشکالی دارد؟", 0),
+    comment("رضا", "youtube", "روزه‌دار می‌تواند ادکلن بزند؟", 5000),
+  ],
+
+  // "If I'm traveling, do I need to fast?" vs "What's the ruling on fasting
+  // for someone who is traveling?" - same question, different phrasing.
+  semanticFastingTravel: [
+    comment("علی", "youtube", "اگر مسافر باشم آیا باید روزه بگیرم؟", 0),
+    comment("حسن", "facebook", "حکم روزه برای شخصی که در سفر است چیست؟", 8000),
+  ],
+
+  // Different questions that share the word "سفر" (travel) - must NOT be
+  // merged by either regex or LLM. One is about Friday prayer, the other about
+  // fasting. Used to verify the LLM doesn't over-merge.
+  semanticDistinctTravel: [
+    comment("خالد", "youtube", "آیا نماز جمعه در حال سفر واجب است؟", 0),
+    comment("عمر", "youtube", "آیا روزه گرفتن در سفر واجب است؟", 5000),
+  ],
 };

@@ -200,7 +200,7 @@ function resetSandbox() {
 }
 
 // --- extension on/off simulation ---------------------------------------------
-// The real popup flips html.bayan-disabled via chrome.storage; here the switch
+// The real popup flips html.safwa-disabled via chrome.storage; here the switch
 // flips the same class directly, so the gated CSS behaves exactly like live.
 
 function wireExtToggle() {
@@ -210,7 +210,7 @@ function wireExtToggle() {
     const on = btn.getAttribute("aria-checked") !== "true";
     btn.setAttribute("aria-checked", String(on));
     status.textContent = on ? "ON" : "OFF";
-    document.documentElement.classList.toggle("bayan-disabled", !on);
+    document.documentElement.classList.toggle("safwa-disabled", !on);
   });
 }
 wireExtToggle();

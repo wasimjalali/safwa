@@ -8,12 +8,12 @@
  *
  * Everything here fails safe. If we are not on a studio, if selectors are
  * unconfirmed, or if the comments container never appears, the extension does
- * nothing visible and logs one clear [Bayān] line. It never corrupts the feed.
+ * nothing visible and logs one clear [Ṣafwa] line. It never corrupts the feed.
  */
 (function () {
   "use strict";
 
-  const TAG = "[Bayān]";
+  const TAG = "[Ṣafwa]";
   const VERSION = chrome.runtime?.getManifest?.().version ?? "?";
 
   // Process detected comments in small debounced batches so a burst of comments
@@ -27,7 +27,9 @@
   // which silently kills the MutationObserver. The watchdog notices and re-attaches.
   const CONTAINER_RECHECK_MS = 3000;
   // Marks comment nodes we've already handled so we never reprocess them.
-  const SEEN_ATTR = "data-syqf-seen";
+  const SEEN_ATTR = "data-safwa-seen";
+  // Marks comment nodes that the LLM re-classified as semantic duplicates.
+  const ANNOTATED_ATTR_LLM = "data-safwa-llm";
 
   if (!/(^|\.)streamyard\.com$/.test(location.host)) {
     console.warn(`${TAG} not a streamyard.com host (${location.host}); doing nothing.`);
@@ -46,10 +48,11 @@
     import(url("src/state.js")),
     import(url("src/grouping.js")),
     import(url("src/ui.js")),
+    import(url("src/llm-classifier.js")),
   ])
-    .then(([configMod, dom, stateMod, grouping, ui]) => {
+    .then(([configMod, dom, stateMod, grouping, ui, llm]) => {
       wireEnabledToggle(configMod.STORAGE_KEYS);
-      boot(configMod.CONFIG, dom, stateMod, grouping, ui);
+      boot(configMod.CONFIG, dom, stateMod, grouping, ui, llm);
     })
     .catch((err) => {
       console.warn(`${TAG} failed to load modules; doing nothing (fail-safe).`, err);
@@ -57,14 +60,14 @@
 
   /*
    * The popup's on/off switch. Off is purely VISUAL: styles.css gates every
-   * annotation on html:not(.bayan-disabled), so flipping the class restores
+   * annotation on html:not(.safwa-disabled), so flipping the class restores
    * StreamYard's native feed instantly without touching its own styles. The
    * matching pipeline keeps running underneath, which means no comment is ever
    * missed while off and switching back on restores every annotation intact.
    */
   function wireEnabledToggle(STORAGE_KEYS) {
     const apply = (enabled) => {
-      document.documentElement.classList.toggle("bayan-disabled", enabled === false);
+      document.documentElement.classList.toggle("safwa-disabled", enabled === false);
     };
     try {
       chrome.storage.local
@@ -87,7 +90,7 @@
     }
   }
 
-  function boot(CONFIG, dom, stateMod, grouping, ui) {
+  function boot(CONFIG, dom, stateMod, grouping, ui, llm) {
     if (!dom.selectorsConfirmed()) {
       console.warn(
         `${TAG} StreamYard selectors are unconfirmed (SELECTORS.CONFIRMED is false ` +
@@ -120,12 +123,61 @@
           node.setAttribute(SEEN_ATTR, "1");
           const decision = grouping.processComment(comment, state, CONFIG);
           ui.render(decision, CONFIG);
+
+          // Combo architecture: if the regex pipeline flagged this as needing
+          // LLM review, asynchronously ask the self-hosted LLM whether it's a
+          // semantic duplicate. If the LLM says "duplicate", re-annotate the
+          // node as a semantic duplicate (dimmed + badged, never hidden). If the
+          // LLM is unreachable or says "primary", the regex decision stands.
+          if (decision.needsLlmReview && CONFIG.LLM_ENABLED) {
+            llmReview(node, comment, decision, CONFIG, llm);
+          }
         } catch (err) {
           // One bad node must never break the rest of the feed.
           console.warn(`${TAG} error processing a comment; skipping it.`, err);
         }
       }
     };
+
+    /*
+     * Asynchronously ask the LLM if this comment is a semantic duplicate of
+     * something already in the feed. This runs AFTER the regex pipeline has
+     * already rendered its decision, so the feed is never blocked. If the LLM
+     * says "duplicate", we re-annotate the node (dim + badge). If it says
+     * "primary" or is unreachable, the regex annotation stays as-is.
+     *
+     * The node may have been removed from the DOM by the time the LLM responds
+     * (StreamYard re-render, virtualized scroll). We check isConnected before
+     * touching it.
+     */
+    function llmReview(node, comment, decision, CONFIG, llm) {
+      llm
+        .classifyComment(comment, decision.recentQuestions, CONFIG)
+        .then((result) => {
+          if (!result) return; // LLM unavailable or parse failure; regex stands
+          if (result.classification !== "duplicate") return; // LLM says primary
+
+          // LLM says this is a semantic duplicate. Re-annotate: dim + badge,
+          // never hide. Only the regex pipeline's exact match can auto-collapse.
+          if (!node.isConnected) return; // node left the DOM while we waited
+          node.classList.remove("safwa-primary");
+          node.classList.add("safwa-dim");
+          const dir = CONFIG.UI_DIRECTION;
+          let badge = node.querySelector(".safwa-badge.safwa-badge--semantic");
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "safwa-badge safwa-badge--semantic";
+            node.appendChild(badge);
+          }
+          badge.setAttribute("dir", dir);
+          badge.textContent = CONFIG.LABELS.semanticDuplicate;
+          node.setAttribute(ANNOTATED_ATTR_LLM, "semantic_duplicate");
+          console.log(`${TAG} LLM flagged a semantic duplicate.`);
+        })
+        .catch(() => {
+          // Silent: the regex decision already stands. No need to warn.
+        });
+    }
 
     const attach = (container) => {
       console.log(`${TAG} comments container found; observing for new comments.`);
