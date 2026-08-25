@@ -11,6 +11,7 @@
  *
  * Fail-safe: if the LLM is unreachable, times out, or returns garbage, the
  * caller falls back to the regex decision. The feed is never broken.
+ * Live path: Cloudflare Worker in deploy/cloudflare (Gemma 4 26B).
  */
 
 const TAG = "[Ṣafwa]";
@@ -124,7 +125,7 @@ export async function classifyComment(newComment, recentQuestions, config) {
 
     const data = await res.json();
     const message = data?.choices?.[0]?.message ?? {};
-    const content = message.content || message.reasoning_content || "";
+    const content = message.content || message.reasoning_content || message.reasoning || "";
     const parsed = parseResponse(content);
 
     if (!parsed) {

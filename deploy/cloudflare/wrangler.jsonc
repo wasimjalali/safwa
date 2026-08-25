@@ -1,0 +1,8 @@
+{
+  "name": "safwa-llm",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-25",
+  "ai": {
+    "binding": "AI"
+  }
+}

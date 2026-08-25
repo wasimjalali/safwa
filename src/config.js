@@ -100,11 +100,12 @@ export const CONFIG = {
   // "semantic_duplicate" but never hides it. Only the regex pipeline's exact
   // match can auto-collapse.
   //
-  // The endpoint is your self-hosted vLLM server running Ornith-1.5 (9B or 35B)
-  // on an AWS EC2 g5.xlarge. See deploy/ for setup scripts.
+  // Advisory LLM: Gemma 4 26B on Cloudflare Workers AI (eval winner).
+  // The extension calls a thin Worker so the API token never sits in the
+  // unpacked Chrome package. Deploy: deploy/cloudflare.
   LLM_ENABLED: true,
-  LLM_ENDPOINT: "http://127.0.0.1:8000/v1/chat/completions", // change to your EC2 public IP
-  LLM_MODEL: "Ornith-1.5-9B", // or "Ornith-1.5-35B-A3B"
+  LLM_ENDPOINT: "https://safwa-llm.karko-ai.workers.dev/v1/chat/completions",
+  LLM_MODEL: "@cf/google/gemma-4-26b-a4b-it",
   LLM_TIMEOUT_MS: 8000, // fall back to regex if no response in 8s
   LLM_MAX_CONTEXT_COMMENTS: 8, // send this many recent questions for comparison
 
