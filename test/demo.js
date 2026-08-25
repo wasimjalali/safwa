@@ -13,6 +13,7 @@ import { CONFIG } from "../src/config.js";
 import { createState } from "../src/state.js";
 import { processComment } from "../src/grouping.js";
 import { render } from "../src/ui.js";
+import { classifyComment } from "../src/llm-classifier.js";
 import { STREAMS } from "./mock-comments.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -52,8 +53,21 @@ function buildRow(comment) {
   return row;
 }
 
-/** Push one comment through the pipeline and annotate its row. */
-function handle(comment, state, panel) {
+function applySemanticBadge(row) {
+  row.classList.remove("safwa-primary");
+  row.classList.add("safwa-dim");
+  let badge = row.querySelector(".safwa-badge.safwa-badge--semantic");
+  if (!badge) {
+    badge = document.createElement("span");
+    badge.className = "safwa-badge safwa-badge--semantic";
+    row.appendChild(badge);
+  }
+  badge.setAttribute("dir", CONFIG.UI_DIRECTION);
+  badge.textContent = CONFIG.LABELS.semanticDuplicate;
+}
+
+/** Push one comment through regex, then Gemma 4 if the pipeline asks. */
+async function handle(comment, state, panel) {
   const row = buildRow(comment);
   panel.appendChild(row);
   panel.scrollTop = panel.scrollHeight;
@@ -61,6 +75,11 @@ function handle(comment, state, panel) {
   comment.el = row;
   const decision = processComment(comment, state, CONFIG);
   render(decision, CONFIG);
+
+  if (decision.needsLlmReview && CONFIG.LLM_ENABLED) {
+    const result = await classifyComment(comment, decision.recentQuestions, CONFIG);
+    if (result?.classification === "duplicate") applySemanticBadge(row);
+  }
   return decision;
 }
 
@@ -132,6 +151,21 @@ const SCENARIOS = [
     title: "Honorific stripping: “سلام استاد …” + the same question",
     expect: "The greeting is ignored for matching, so the second collapses as a duplicate.",
   },
+  {
+    key: "semanticPerfumeFasting",
+    title: "LLM: same question, completely different words (perfume while fasting)",
+    expect: "Regex cannot match these. Gemma 4 should dim the second and badge it as a semantic duplicate.",
+  },
+  {
+    key: "semanticFastingTravel",
+    title: "LLM: same question, different phrasing (fasting while traveling)",
+    expect: "Regex leaves both primary. Gemma 4 should flag the second as a semantic duplicate.",
+  },
+  {
+    key: "semanticDistinctTravel",
+    title: "LLM: related words, different questions (Friday prayer vs fasting in travel)",
+    expect: "Both stay primary. Gemma 4 must not merge them.",
+  },
 ];
 
 async function playScenario(scenario, mount) {
@@ -153,7 +187,7 @@ async function playScenario(scenario, mount) {
   // Fresh state per scenario so handles/dedup don't bleed across scenarios.
   const state = createState();
   for (const c of STREAMS[scenario.key]) {
-    handle({ ...c }, state, panel);
+    await handle({ ...c }, state, panel);
     await sleep(ROW_DELAY_MS);
   }
 }
@@ -189,7 +223,7 @@ function sendSandbox() {
     displayText: text,
     timestamp: Date.now(), // real arrival time, so real gaps drive continuation
   };
-  handle(comment, sandboxState, panel);
+  handle(comment, sandboxState, panel); // live: regex first, Gemma 4 async on top
   textEl.value = "";
   textEl.focus();
 }
@@ -228,4 +262,5 @@ document.getElementById("sb-text").addEventListener("keydown", (e) => {
 document.getElementById("config-dump").textContent =
   `window ${CONFIG.CONTINUATION_WINDOW_MS / 1000}s · max ${CONFIG.MAX_COMMENTS_PER_QUESTION} comments/question · ` +
   `fuzzy ≥ ${CONFIG.FUZZY_THRESHOLD} · auto-collapse exact dupes: ${CONFIG.AUTO_COLLAPSE_EXACT_DUPLICATES} · ` +
-  `hide extra questions: ${CONFIG.HIDE_EXTRA_QUESTIONS} · dim in-window extras: ${CONFIG.DIM_IN_WINDOW_EXTRAS}`;
+  `hide extra questions: ${CONFIG.HIDE_EXTRA_QUESTIONS} · dim in-window extras: ${CONFIG.DIM_IN_WINDOW_EXTRAS} · ` +
+  `LLM: ${CONFIG.LLM_ENABLED ? CONFIG.LLM_MODEL : "off"}`;
