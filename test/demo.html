@@ -48,77 +48,58 @@
         color: var(--ink);
       }
 
-      /* --- Header: emerald band, gold hairline, extension on/off switch --- */
       header {
-        padding: 26px 28px;
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        height: 56px;
+        padding: 0 20px;
         background: var(--emerald-dark);
         color: var(--ivory);
         display: flex;
         align-items: center;
-        gap: 18px;
+        gap: 12px;
+        border-bottom: 1px solid rgba(247, 243, 234, 0.08);
       }
       header .brand-logo {
-        width: 56px; height: 56px; border-radius: 13px; flex: 0 0 auto;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+        width: 28px; height: 28px; border-radius: 7px; flex: 0 0 auto;
       }
-      header .brand-copy { flex: 1; min-width: 0; }
       header h1 {
-        margin: 0 0 4px; font-size: 26px; font-weight: 800; letter-spacing: 0.2px;
-      }
-      header h1 .ar {
+        flex: 1;
+        min-width: 0;
+        margin: 0;
         font-family: "Vazirmatn", Tahoma, sans-serif;
-        color: var(--ivory); margin-inline-start: 10px; font-weight: 700;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 1;
       }
-      header p { margin: 0; color: rgba(251, 246, 233, 0.85); font-size: 13.5px; max-width: 64ch; }
       #config-dump {
-        margin-top: 10px;
-        display: inline-block;
+        margin: 0 0 14px;
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-        color: rgba(251, 246, 233, 0.92);
-        background: rgba(0, 0, 0, 0.22);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        padding: 5px 10px;
-        border-radius: 7px;
+        color: var(--muted);
       }
-
-      /* The extension on/off switch (simulates the popup toggle: it flips
-         html.safwa-disabled, exactly what the real popup does on StreamYard). */
-      .ext-toggle-wrap {
-        flex: 0 0 auto;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 7px;
-        padding: 12px 18px;
-        background: rgba(0, 0, 0, 0.18);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 13px;
-      }
-      .ext-toggle-label {
-        font-size: 11px; font-weight: 600; letter-spacing: 0.8px;
-        text-transform: uppercase; color: rgba(251, 246, 233, 0.8);
-      }
-      #ext-status { font-weight: 700; color: var(--ivory); }
       .switch {
         position: relative;
-        width: 54px; height: 31px; padding: 0;
-        border: 1px solid rgba(0, 0, 0, 0.2);
+        flex: 0 0 auto;
+        width: 48px; height: 28px; padding: 0;
+        border: 1px solid rgba(247, 243, 234, 0.2);
         border-radius: 999px;
         background: #8a8474;
         cursor: pointer;
-        transition: background-color 0.2s var(--ease-out);
+        transition: background-color 0.15s var(--ease-out);
       }
       .switch[aria-checked="true"] {
-        background: var(--emerald-bright);
+        background: #2f9a72;
+        border-color: #2f9a72;
       }
       .switch .knob {
-        position: absolute; top: 3px; left: 3px;
-        width: 24px; height: 24px; border-radius: 50%;
+        position: absolute; top: 2px; inset-inline-start: 2px;
+        width: 22px; height: 22px; border-radius: 50%;
         background: #fff;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-        transition: left 0.2s var(--ease-out);
+        box-shadow: 0 1px 2px rgba(20, 34, 28, 0.28);
+        transition: inset-inline-start 0.15s var(--ease-out);
       }
-      .switch[aria-checked="true"] .knob { left: calc(100% - 27px); }
+      .switch[aria-checked="true"] .knob { inset-inline-start: calc(100% - 24px); }
 
       main { max-width: 1100px; margin: 0 auto; padding: 30px 24px 10px; display: grid; gap: 34px; }
 
@@ -264,24 +245,18 @@
     </style>
   </head>
   <body>
-    <header>
-      <img class="brand-logo" src="../icons/icon128.png" alt="Ṣafwa logo" />
-      <div class="brand-copy">
-        <h1>Ṣafwa<span class="ar">صفوة</span></h1>
-        <p>Live Q&amp;A filter for Dari/Persian streams. Real matching core + UI, fed by simulated comments. No StreamYard, no live audience needed.</p>
-        <span id="config-dump"></span>
-      </div>
-      <div class="ext-toggle-wrap">
-        <span class="ext-toggle-label">Extension <span id="ext-status">ON</span></span>
-        <button id="ext-toggle" class="switch" role="switch" aria-checked="true" title="Simulates the popup on/off switch">
-          <span class="knob"></span>
-        </button>
-      </div>
+    <header dir="rtl">
+      <img class="brand-logo" src="../icons/icon48.png" alt="" />
+      <h1>صفوة</h1>
+      <button id="ext-toggle" class="switch" role="switch" aria-checked="true" aria-label="ON">
+        <span class="knob"></span>
+      </button>
     </header>
 
     <main>
       <section class="col">
         <h2>Scripted scenarios (the acceptance cases)</h2>
+        <p id="config-dump"></p>
         <p>Plays each scenario into its own mini comments panel and annotates it live. Compare what you see against the "Expect" line. Flip the header switch any time: off restores every panel to a clean, native-looking feed (exactly what the popup does on StreamYard).</p>
         <button id="play-all">Run all scenarios</button>
         <div id="scenarios" style="margin-top:18px"></div>

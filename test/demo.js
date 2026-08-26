@@ -249,11 +249,10 @@ function resetSandbox() {
 
 function wireExtToggle() {
   const btn = document.getElementById("ext-toggle");
-  const status = document.getElementById("ext-status");
   btn.addEventListener("click", () => {
     const on = btn.getAttribute("aria-checked") !== "true";
     btn.setAttribute("aria-checked", String(on));
-    status.textContent = on ? "ON" : "OFF";
+    btn.setAttribute("aria-label", on ? "ON" : "OFF");
     document.documentElement.classList.toggle("safwa-disabled", !on);
   });
 }
