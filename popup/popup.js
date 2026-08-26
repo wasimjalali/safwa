@@ -24,13 +24,12 @@ const manifest =
 $("version").textContent = manifest ? `v${manifest.version}` : "";
 
 const toggle = $("toggle");
-const pill = $("status-pill");
+const statusText = $("status-text");
 
 function paint(enabled) {
   toggle.setAttribute("aria-checked", String(enabled));
   document.body.classList.toggle("is-off", !enabled);
-  pill.hidden = false;
-  pill.textContent = enabled ? L.popupStatusOn : L.popupStatusOff;
+  statusText.textContent = enabled ? L.popupStatusOn : L.popupStatusOff;
   $("hint").textContent = enabled ? L.popupHintOn : L.popupHintOff;
 }
 

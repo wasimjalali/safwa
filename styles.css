@@ -6,8 +6,7 @@
  * They make no assumption about StreamYard's own markup, so a StreamYard layout
  * change cannot break the look. The native feed is otherwise untouched.
  *
- * Brand: deep emerald + gold + ivory. Premium, Islamic, and high-contrast on
- * StreamYard's dark studio. Badge text is Dari (right-to-left).
+ * Brand: deep emerald, ivory, one gold count badge. Badge text is Dari (RTL).
  *
  * On/off: the popup toggles html.safwa-disabled. Every visible annotation is
  * gated on html:not(.safwa-disabled), so turning the filter off restores the
@@ -28,112 +27,68 @@
 }
 
 :root {
-  /* palette */
-  --safwa-emerald-1: #169063;
-  --safwa-emerald-2: #0b5a43;
-  --safwa-gold-1: #f0d695;
-  --safwa-gold-2: #c8a24a;
-  --safwa-ink: #06382a;
-  --safwa-ivory: #fbf6e9;
-  --safwa-stone-1: #78715f;
-  --safwa-stone-2: #4e483e;
-  --safwa-amber-1: #d99a3d;
-  --safwa-amber-2: #9c6716;
-
-  /* motion */
+  --safwa-surface: #f7f3ea;
+  --safwa-ink: #14221c;
+  --safwa-accent: #0e6b51;
+  --safwa-accent-deep: #0a3d32;
+  --safwa-count: #d4b36a;
+  --safwa-ivory: #f4efe3;
+  --safwa-stone: #4a534e;
+  --safwa-amber: #8a5a14;
   --safwa-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-
-  /* depth: one subtle elevation level, nothing else */
-  --safwa-shadow-badge: 0 1px 2px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 
-/*
- * The badge. Sized for an operator reading a busy feed at a glance: larger
- * type than v0, generous padding, a status dot for language-neutral
- * recognition, and a soft brand-tinted glow per kind.
- */
+/* Quiet label on a dark studio feed. The gold count badge is the one loud fact. */
 .safwa-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   margin-inline-start: 8px;
   margin-block: 2px;
-  padding: 4px 13px;
-  border-radius: 999px;
+  padding: 2px 10px;
+  border-radius: 4px;
   font-family: "Vazirmatn", "IRANSans", "Segoe UI", Tahoma, sans-serif;
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 1.6;
-  letter-spacing: 0.1px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.7;
   font-variant-numeric: tabular-nums;
   vertical-align: middle;
   white-space: nowrap;
   color: var(--safwa-ivory);
   direction: rtl;
   unicode-bidi: isolate;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: var(--safwa-shadow-badge);
+  background: var(--safwa-stone);
   -webkit-font-smoothing: antialiased;
-  animation: safwa-pop 0.2s var(--safwa-ease-out);
-}
-
-/* A small status dot for instant recognition (language-neutral, RTL-safe). */
-.safwa-badge::before {
-  content: "";
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.8;
+  animation: safwa-pop 180ms var(--safwa-ease-out);
 }
 
 @keyframes safwa-pop {
-  from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-/* Continuation merge: two comments shown as one question. Emerald = safe/info. */
 .safwa-badge--joined {
-  background: var(--safwa-emerald-2);
+  background: var(--safwa-accent-deep);
 }
 
 html:not(.safwa-disabled) .safwa-joined {
-  border-inline-start: 3px solid var(--safwa-emerald-1);
-  padding-inline-start: 9px;
-  border-radius: 0; /* square edge: the accent bar reads as one continuous spine */
-  background-color: rgba(20, 122, 91, 0.07);
+  border-inline-start: 2px solid var(--safwa-accent);
+  padding-inline-start: 8px;
+  border-radius: 0;
 }
 
-/* "asked N times" - the hero fact and the one loud element. Gold, ink text. */
 .safwa-count {
-  background: var(--safwa-gold-1);
+  background: var(--safwa-count);
   color: var(--safwa-ink);
-  font-weight: 750;
-  border-color: rgba(120, 90, 20, 0.45);
+  font-weight: 700;
 }
 
-/* A near-duplicate that was marked but NOT hidden. Muted stone = low priority. */
-.safwa-badge--dup {
-  background: var(--safwa-stone-2);
-}
-
-/* A second, self-contained question from the same person. Amber = needs a look. */
-.safwa-badge--extra {
-  background: var(--safwa-amber-2);
-}
-
-/* A semantic duplicate flagged by the LLM (same question, different words).
-   Teal = LLM-sourced, distinct from the regex fuzzy badge. Dimmed, never hidden. */
+.safwa-badge--dup,
 .safwa-badge--semantic {
-  background: #2a6f6a;
-  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--safwa-stone);
+}
+
+.safwa-badge--extra {
+  background: var(--safwa-amber);
 }
 
 /* Ambiguous cases are dimmed, never hidden (human stays in the loop). */

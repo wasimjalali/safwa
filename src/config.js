@@ -116,7 +116,7 @@ export const CONFIG = {
     askedTimes: "{n} بار پرسیده شد", // "asked {n} times"
     possibleDuplicate: "شاید تکراری باشد", // "it may be a duplicate"
     secondQuestion: "سوال دوم این شخص", // "this person's second question"
-    semanticDuplicate: "احتمالاً تکراری (معنایی)", // "possibly duplicate (semantic)"
+    semanticDuplicate: "شاید تکراری باشد", // same wording as possibleDuplicate; teacher sees one idea
 
     // Popup (the bar that opens when the extension icon is clicked).
     popupTagline: "فلتر سوالات پخش زنده",          // "live stream question filter"

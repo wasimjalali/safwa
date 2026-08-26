@@ -170,4 +170,14 @@ export const STREAMS = {
     comment("خالد", "youtube", "آیا نماز جمعه در حال سفر واجب است؟", 0),
     comment("عمر", "youtube", "آیا روزه گرفتن در سفر واجب است؟", 5000),
   ],
+
+  semanticWajibFard: [
+    comment("نادیه", "youtube", "آیا زکات بر طلا واجب است؟", 0),
+    comment("سمیه", "youtube", "آیا زکات طلا فرض است؟", 4000),
+  ],
+
+  trapZakatJewelryCoins: [
+    comment("نادیه", "youtube", "آیا زکات بر طلای زیورآلات واجب است؟", 0),
+    comment("طاهر", "youtube", "آیا سکه‌های طلا زکات دارند؟", 4000),
+  ],
 };

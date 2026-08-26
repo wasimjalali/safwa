@@ -16,19 +16,45 @@
 
 const TAG = "[Ṣafwa]";
 
-const SYSTEM_PROMPT = `/no_think
-You are a live Q&A comment filter for an Islamic teacher's StreamYard live stream. The audience asks questions in Dari/Persian. Your job is to classify whether a new comment is a duplicate of a question already in the feed, even if the wording is completely different.
+// Gemma 4 system turn. Official docs: Gemma 4 supports a `system` role;
+// do not put `<|think|>` here (thinking is off via chat_template_kwargs);
+// do not use `/no_think` (that is llama.cpp, not Google). Few-shot, then
+// the live comments in the user turn, question last.
+const SYSTEM_PROMPT = `You classify Dari and Persian questions from a live Islamic Q&A.
 
-Classify the new comment as exactly one of:
-- "duplicate": The same question as one already in the feed, asked in different words. Two comments are duplicates if they ask the same thing, even if no words are shared.
-- "primary": A new, distinct question not already in the feed.
+Decide if the new comment asks the same underlying question as any recent comment.
 
-Rules:
-- "duplicate" means the same underlying question, regardless of wording. "آیا زکات بر طلا واجب است؟" and "آیا پرداخت زکات برای طلا لازم است؟" are duplicates.
-- Different questions that share some words are NOT duplicates. "آیا نماز جمعه در حال سفر واجب است؟" and "آیا روزه گرفتن در سفر واجب است؟" are both primary (both about travel, but different topics).
-- Identity is per platform + handle. Same handle on different platforms = different people.
+Reply with only one JSON object and no other text:
+{"classification":"duplicate"}
+or
+{"classification":"primary"}
 
-Respond with ONLY a JSON object: {"classification": "duplicate"} or {"classification": "primary"}. No explanation, no markdown.`;
+duplicate: the teacher would give one answer to both. Ignore wording, dialect, greetings and Arabic vs Persian letters (ي/ی, ك/ک). Treat synonyms as the same ask (واجب/فرض/لازم, عطر/ادکلن, موسیقی/آهنگ, روزه/روژه).
+
+primary: a different ask. A shared setting (سفر, روزه) or a shared topic word (زکات, نماز) is not enough. Different acts of worship, different objects (زیورآلات vs سکه, جوراب vs کفش), different times of day or different cities are primary. A follow-up that changes who it applies to ("برای خانم‌ها چطور؟") is primary.
+
+If both readings are reasonable, choose primary.
+
+Examples:
+Recent: آیا زکات بر طلا واجب است؟
+New: طلا زکات دارد یا نه؟
+{"classification":"duplicate"}
+
+Recent: آیا نماز جمعه در حال سفر واجب است؟
+New: آیا روزه گرفتن در سفر واجب است؟
+{"classification":"primary"}
+
+Recent: نماز تراویح چند رکعت است؟
+New: نماز تراويح چند رکعت اسـت؟
+{"classification":"duplicate"}
+
+Recent: آیا زکات بر طلای زیورآلات واجب است؟
+New: آیا سکه‌های طلا زکات دارند؟
+{"classification":"primary"}
+
+Recent: آیا نماز خواندن در حال نشسته جایز است؟
+New: برای خانم‌ها چطور؟
+{"classification":"primary"}`;
 
 /**
  * Build the user message with the new comment and recent feed context.
@@ -38,14 +64,14 @@ Respond with ONLY a JSON object: {"classification": "duplicate"} or {"classifica
  * @returns {string}
  */
 function buildUserPrompt(newComment, recentQuestions) {
-  const lines = ["Recent questions in the feed:"];
+  const lines = ["Recent comments:"];
   for (const q of recentQuestions) {
-    lines.push(`- "${q.displayText}" (from ${q.handle} on ${q.platform ?? "unknown"})`);
+    lines.push(`- "${q.displayText}"`);
   }
   lines.push("");
-  lines.push(`New comment: "${newComment.displayText}" (from ${newComment.handle} on ${newComment.platform ?? "unknown"})`);
+  lines.push(`New comment: "${newComment.displayText}"`);
   lines.push("");
-  lines.push('Is this new comment a duplicate of any question already in the feed? Respond with JSON: {"classification": "duplicate"} or {"classification": "primary"}.');
+  lines.push("Classify the new comment.");
   return lines.join("\n");
 }
 
