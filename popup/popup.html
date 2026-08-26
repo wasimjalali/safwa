@@ -9,34 +9,18 @@
   <head>
     <meta charset="utf-8" />
     <title>صفوة</title>
+    <link rel="icon" href="/favicon.ico?v=2" sizes="any" />
+    <link rel="icon" type="image/png" href="../icons/icon32.png?v=2" />
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <header class="brand">
       <img class="brand__logo" src="../icons/icon48.png" alt="" />
-      <div class="brand__names">
-        <h1 class="brand__fa">صفوة</h1>
-        <p id="status-text" class="brand__status"></p>
-      </div>
+      <h1 class="brand__fa">صفوة</h1>
+      <button id="toggle" class="switch" role="switch" aria-checked="true">
+        <span class="switch__knob"></span>
+      </button>
     </header>
-
-    <main class="card">
-      <div class="switch-row">
-        <div class="switch-text">
-          <p id="tagline" class="switch-title"></p>
-          <p id="hint" class="switch-hint"></p>
-        </div>
-        <button id="toggle" class="switch" role="switch" aria-checked="true">
-          <span class="switch__knob"></span>
-        </button>
-      </div>
-    </main>
-
-    <footer class="foot">
-      <span id="foot-text"></span>
-      <span id="version" class="foot__version"></span>
-    </footer>
-
     <script type="module" src="popup.js"></script>
   </body>
 </html>

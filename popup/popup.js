@@ -10,27 +10,15 @@
 import { CONFIG, STORAGE_KEYS } from "../src/config.js";
 
 const L = CONFIG.LABELS;
-const $ = (id) => document.getElementById(id);
-
-$("tagline").textContent = L.popupTagline;
-$("foot-text").textContent = L.popupFooter;
+const toggle = document.getElementById("toggle");
 
 const hasStorage =
   typeof chrome !== "undefined" && !!chrome.storage?.local;
-const manifest =
-  typeof chrome !== "undefined" && chrome.runtime?.getManifest
-    ? chrome.runtime.getManifest()
-    : null;
-$("version").textContent = manifest ? `v${manifest.version}` : "";
-
-const toggle = $("toggle");
-const statusText = $("status-text");
 
 function paint(enabled) {
   toggle.setAttribute("aria-checked", String(enabled));
+  toggle.setAttribute("aria-label", enabled ? L.popupStatusOn : L.popupStatusOff);
   document.body.classList.toggle("is-off", !enabled);
-  statusText.textContent = enabled ? L.popupStatusOn : L.popupStatusOff;
-  $("hint").textContent = enabled ? L.popupHintOn : L.popupHintOff;
 }
 
 let enabled = true;

@@ -28,7 +28,9 @@ Because we read the page instead of an API, a StreamYard layout change can break
 4. Open a StreamYard studio (`https://streamyard.com/...`) with the comments panel visible.
 5. Open DevTools (`Cmd+Option+I` on Mac) and check the Console. You should see lines tagged `[Ṣafwa]`.
 
-Click the Ṣafwa icon in the toolbar to open the popup: one switch turns the filter on or off (persisted, applied to the live feed instantly). Off restores StreamYard's native feed exactly. Everything else is configured in `src/config.js`; there is no settings screen in v1.
+Click the Ṣafwa icon in the toolbar to open the popup: a 56px bar with the mark, صفوة and one switch. Off restores StreamYard's native feed exactly. Everything else is configured in `src/config.js`; there is no settings screen in v1.
+
+To see that pair locally: `npm run demo`, then open `http://127.0.0.1:8000/test/teacher.html`.
 
 ## Project layout
 
@@ -45,19 +47,19 @@ src/
   llm-classifier.js    async LLM semantic-duplicate classifier (Cloudflare Gemma 4)
   config.js            all thresholds, lists, feature flags, LLM settings, AND the StreamYard selectors
 popup/
-  popup.html|css|js    the toolbar popup: one on/off switch (chrome.storage.local)
+  popup.html|css|js    toolbar popup: mark, name, on/off switch
 fonts/
   Vazirmatn-Variable   bundled Persian UI font (OFL), used by badges, popup and demo
 styles.css             badge + dim styles, @font-face, on/off CSS gating
 test/
   mock-comments.js     scripted comment streams for testing without StreamYard
-  run-tests.js         Node test runner for the matching core (37 tests)
+  run-tests.js         Node test runner for the matching core (39 tests)
   demo.html|js         visual simulation harness (npm run demo)
+  teacher.html|js      what the teacher sees: popup + annotated comments column
 deploy/
-  cloudflare/          Gemma 4 Worker (Workers AI binding)
+  cloudflare/          live Gemma 4 Worker (Workers AI binding)
   Dockerfile           leftover vLLM image (not the live path)
-  health-check.sh      verify the LLM server is up and classifying correctly
-  README.md            step-by-step AWS setup guide with resource IDs
+  README.md            leftover AWS notes (not the live path)
 ```
 
 ## The processing pipeline (order is fixed)
@@ -125,12 +127,12 @@ Every knob lives in `src/config.js`. There is no settings UI in v1; you edit the
 
 The regex pipeline handles 80-90% of comments instantly. Its one gap is **semantic deduplication**: two people asking the same question in completely different words with zero shared tokens.
 
-v2 adds a self-hosted LLM as a second opinion for exactly these cases. The architecture is a **combo**, not LLM-alone:
+v2 adds Gemma 4 (Cloudflare Workers AI) as a second opinion for exactly these cases. The architecture is a **combo**, not LLM-alone:
 
 ```
-New comment -> regex pipeline (instant, 0ms)
+New comment -> regex pipeline (instant)
   -> High confidence? -> act immediately
-  -> Ambiguous (might be semantic dup)? -> async LLM call (50-200ms)
+  -> Ambiguous (might be semantic dup)? -> async Gemma 4 call (~300ms p50)
      -> LLM says "duplicate" -> dim + badge (never hide)
      -> LLM unavailable or says "primary" -> regex decision stands
 ```
@@ -139,17 +141,17 @@ New comment -> regex pipeline (instant, 0ms)
 
 - **`src/llm-classifier.js`**: calls a Cloudflare Worker that runs Gemma 4 26B. Uses `fetch()` with an 8s timeout. Falls back to the regex decision on any failure.
 - **`src/grouping.js`**: `processComment` now sets `needsLlmReview: true` on "primary" decisions when there are prior questions to compare against. The pipeline order and all existing decisions are unchanged.
-- **`src/content.js`**: after rendering the regex decision, if `needsLlmReview` is true, asynchronously calls the LLM. If it says "duplicate", re-annotates the node (dim + teal "semantic duplicate" badge). Never hides.
+- **`src/content.js`**: after rendering the regex decision, if `needsLlmReview` is true, asynchronously calls Gemma 4. If it says "duplicate", re-annotates the node (dim + the same "maybe duplicate" badge the regex uses). Never hides.
 - **`src/config.js`**: `LLM_ENABLED`, `LLM_ENDPOINT`, `LLM_MODEL`, `LLM_TIMEOUT_MS`, `LLM_MAX_CONTEXT_COMMENTS`.
-- **`styles.css`**: `.safwa-badge--semantic` (teal badge for LLM-flagged dups).
-- **`manifest.json`**: `host_permissions` now allows `http://*:8000/*` and `http://*:8080/*` for the LLM endpoint.
-- **`deploy/`**: Dockerfile, launch/teardown/health-check scripts, and step-by-step AWS setup guide.
+- **`styles.css`**: `.safwa-badge--semantic` shares the quiet duplicate treatment.
+- **`manifest.json`**: `host_permissions` includes `https://*.workers.dev/*` for the Worker.
+- **`deploy/cloudflare/`**: the live Worker. The API token stays in Wrangler, not in the Chrome package.
 
 ### What did NOT change
 
 - The regex pipeline still runs first and handles all high-confidence cases instantly.
 - Only exact duplicates auto-collapse. LLM-flagged semantic dups are dimmed + badged, never hidden.
-- All 32 original tests pass unchanged. 5 new tests cover the LLM escalation flags.
+- `npm test` is 39/39. LLM escalation flags are covered.
 - `LLM_ENABLED: false` reverts to pure v1 behavior.
 
 ### Self-hosting (data sovereignty)
@@ -162,14 +164,14 @@ This project is built in phases (spec Section 14). Current status:
 
 - [x] Phase 1: Skeleton (manifest + content script logging on streamyard.com)
 - [x] Phase 2: DOM discovery layer built with clearly-marked placeholder selectors (`SELECTORS.CONFIRMED: false`). Real selectors still need confirming on a live studio.
-- [x] Phase 3: Matching core, proven on mocks (`npm test`: 32/32, acceptance criteria 1-5)
+- [x] Phase 3: Matching core, proven on mocks (`npm test`: 39/39, acceptance criteria 1-5)
 - [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; gated behind `CONFIRMED`)
 - [x] Phase 5: UI layer (in-place annotation with confidence tiers)
 - [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
-- [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. 39/39 tests.
+- [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. Dari eval 68/68.
 - [x] Dari/Persian localization: script normalization, Dari word lists + labels, RTL UI, proven on Dari fixtures (`npm test`)
-- [x] Brand: name **Ṣafwa**, crescent logo (`icons/`, master at `icons/logo.svg`), premium emerald + gold + ivory palette, polished RTL badges
-- [x] Popup with on/off switch (persisted in `chrome.storage.local`; off restores the native feed exactly)
+- [x] Brand: name **Ṣafwa**, Kufic ṣād mark (`icons/`, master at `icons/logo.svg`)
+- [x] Popup: 56px bar, mark + name + on/off (persisted in `chrome.storage.local`; off restores the native feed exactly)
 - [x] Bundled Vazirmatn variable font (OFL) for crisp Persian rendering in badges, popup and demo
 
 ### To go fully live
