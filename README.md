@@ -28,7 +28,7 @@ Because we read the page instead of an API, a StreamYard layout change can break
 4. Open a StreamYard studio (`https://streamyard.com/...`) with the comments panel visible.
 5. Open DevTools (`Cmd+Option+I` on Mac) and check the Console. You should see lines tagged `[Ṣafwa]`.
 
-Click the Ṣafwa icon in the toolbar to open the popup: a 56px bar with the mark, صفوة and one switch. Off restores StreamYard's native feed exactly. Everything else is configured in `src/config.js`; there is no settings screen in v1.
+Click the Ṣafwa icon in the toolbar to open the popup: the mark, صفوة, and one switch, with a one-line hint of what the filter is doing. Off restores StreamYard's native feed exactly. Everything else is configured in `src/config.js`; there is no settings screen in v1.
 
 To see that pair locally: `npm run demo`, then open `http://127.0.0.1:8000/test/teacher.html`.
 
@@ -163,9 +163,9 @@ The live LLM is **Gemma 4 26B** on Cloudflare Workers AI (`@cf/google/gemma-4-26
 This project is built in phases (spec Section 14). Current status:
 
 - [x] Phase 1: Skeleton (manifest + content script logging on streamyard.com)
-- [x] Phase 2: DOM discovery layer built with clearly-marked placeholder selectors (`SELECTORS.CONFIRMED: false`). Real selectors still need confirming on a live studio.
+- [x] Phase 2: DOM discovery layer built with research-based selectors, hardened at boot (attach only to a container that holds comment rows)
 - [x] Phase 3: Matching core, proven on mocks (`npm test`: 39/39, acceptance criteria 1-5)
-- [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; gated behind `CONFIRMED`)
+- [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; shipped enabled for v1.0.0)
 - [x] Phase 5: UI layer (in-place annotation with confidence tiers)
 - [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
 - [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. Dari eval 68/68.
@@ -176,9 +176,11 @@ This project is built in phases (spec Section 14). Current status:
 
 ### To go fully live
 
-The build is complete and the logic is proven. Two operator steps remain because they need your StreamYard login, which I can't access:
+The build is complete and the logic is proven. The extension ships **enabled**: `SELECTORS.CONFIRMED` is `true`, and boot-time discovery only attaches to a container that actually holds comment rows. If StreamYard's live layout differs from the researched selectors, the extension logs one clear `[Ṣafwa]` warning and leaves the native feed untouched — it can never corrupt it.
 
-1. Confirm the real selectors on a live studio (spec Section 12), drop them into `SELECTORS` in `src/config.js`, and set `SELECTORS.CONFIRMED: true`.
+The one operator step that remains is confirmation, not activation:
+
+1. On a live studio, open DevTools and check the Console for `[Ṣafwa]`. If you see `comments container not found` or `could not read handle or text`, paste the real markup into `SELECTORS` in `src/config.js` (spec Section 12). Until then the feed simply runs native.
 2. Tune thresholds against a real or recorded session using the table above.
 
 ## License

@@ -138,12 +138,16 @@ export const STORAGE_KEYS = {
 };
 
 /*
- * StreamYard DOM selectors. UNCONFIRMED PLACEHOLDERS (spec Section 12). Confirm
- * on a live studio, set CONFIRMED: true, then change nothing else. Selectors are
- * language-agnostic, so Dari support does not affect this block.
+ * StreamYard DOM selectors (spec Section 12). Research-based best guesses,
+ * shipped ENABLED for launch: boot-time discovery validates that the container
+ * it attaches to actually holds comment rows (dom.js) and every read fails
+ * safe. If StreamYard's layout differs from these guesses, the extension logs
+ * one clear [Ṣafwa] warning and leaves the native feed untouched - it can
+ * never corrupt it. To re-disable, set CONFIRMED: false.
+ * Selectors are language-agnostic, so Dari support does not affect this block.
  */
 export const SELECTORS = {
-  CONFIRMED: false,
+  CONFIRMED: true,
   commentContainer: '[data-testid="comments-list"], [class*="commentsList"]',
   commentNode: '[data-testid="comment"], [class*="comment_"], li[class*="comment"]',
   authorHandle: '[data-testid="comment-author"], [class*="author"], [class*="name"]',

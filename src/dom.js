@@ -28,20 +28,33 @@ export function selectorsConfirmed() {
 }
 
 /**
- * Find the element that contains all comments. Returns null and warns once if
- * the container selector matches nothing (StreamYard changed, or wrong page).
+ * Find the element that contains all comments.
+ *
+ * With the comma-separated container selector, several elements can match
+ * (e.g. both a wrapper and the real list). A candidate that already holds
+ * comment rows is always preferred over a bare match, so the observer never
+ * settles on an empty wrapper that will never see a comment.
+ *
+ * With `requireRows`, return null unless a candidate holds rows: boot uses
+ * this while polling, so a page that matches the container selector but has
+ * not rendered its first comment yet does not get latched onto prematurely.
+ *
+ * Returns null and warns once if nothing matches at all (StreamYard changed,
+ * or wrong page).
  */
-export function findCommentContainer(root = document) {
-  const container = root.querySelector(SELECTORS.commentContainer);
-  if (!container) {
+export function findCommentContainer(root = document, { requireRows = false } = {}) {
+  const candidates = Array.from(root.querySelectorAll(SELECTORS.commentContainer));
+  if (candidates.length === 0) {
     warnOnce(
       "container",
-      `comments container not found. Selectors are unconfirmed or StreamYard's ` +
-        `layout changed. Doing nothing (fail-safe). Update SELECTORS in config.js.`
+      `comments container not found (yet?). Doing nothing (fail-safe). If this ` +
+        `persists with the comments panel open, update SELECTORS in config.js.`
     );
     return null;
   }
-  return container;
+  const withRows = candidates.find((c) => c.querySelector(SELECTORS.commentNode));
+  if (withRows) return withRows;
+  return requireRows ? null : candidates[0];
 }
 
 /** Get every comment node currently in the container (for the initial scan). */
