@@ -15,7 +15,13 @@ import { processComment } from "../src/grouping.js";
 import { render } from "../src/ui.js";
 import { classifyComment } from "../src/llm-classifier.js";
 
-const DEFAULT_REPLAY = "./fixtures/replay-ic2UFFlRtU8.json";
+const DEFAULT_REPLAYS = [
+  "replay-ic2UFFlRtU8.json", // 66 min · 101 comments
+  "replay-fL3CUTuML2Q.json", // 87
+  "replay-K3VYtVCGLsA.json", // 106
+  "replay-wW9StLyzAug.json", // 45
+  "replay-IDgILh--PwI.json", // 86
+];
 
 const panel = document.getElementById("panel");
 const progressEl = document.getElementById("progress");
@@ -24,6 +30,7 @@ const speedEl = document.getElementById("speed");
 const playBtn = document.getElementById("play");
 const restartBtn = document.getElementById("restart");
 const llmEl = document.getElementById("use-llm");
+const sessionEl = document.getElementById("session");
 
 const PLATFORM_GLYPH = { youtube: "YT", facebook: "FB", instagram: "IG", twitch: "TW" };
 
@@ -240,10 +247,19 @@ document.getElementById("toggle").addEventListener("click", (e) => {
   document.documentElement.classList.toggle("safwa-disabled", !on);
 });
 
-// --- load the fixture ---------------------------------------------------------
+// --- load the fixtures --------------------------------------------------------
 
 async function load() {
-  const res = await fetch(DEFAULT_REPLAY);
+  if (!sessionEl.options.length) {
+    for (const name of DEFAULT_REPLAYS) {
+      const opt = document.createElement("option");
+      opt.value = `./fixtures/${name}`;
+      opt.textContent = name.replace(/^replay-|\.json$/g, "");
+      sessionEl.appendChild(opt);
+    }
+    sessionEl.addEventListener("change", () => load());
+  }
+  const res = await fetch(sessionEl.value);
   if (!res.ok) throw new Error(`fixture ${res.status}`);
   comments = await res.json();
   restart();

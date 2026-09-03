@@ -67,7 +67,7 @@ export const STREAMS = {
   // Criterion 4: a genuine second, separate question later (outside the window).
   secondQuestionLater: [
     comment("عمر", "youtube", "آیا نماز خواندن در حال نشسته جایز است؟", 0),
-    comment("عمر", "youtube", "حکم روزه گرفتن در سفر چیست؟", 60000),
+    comment("عمر", "youtube", "حکم روزه گرفتن در سفر چیست؟", 90000),
   ],
 
   // Criterion 5: two different short questions from two handles. Never merge.

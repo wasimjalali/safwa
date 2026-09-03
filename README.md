@@ -46,7 +46,7 @@ npm run demo   # then open http://127.0.0.1:8000/test/replay.html
 - `test/replay.html` replays the comments at x1 to instant speed, with the real badges and a live decision tally.
 - `node test/replay-analysis.js [fixture]` prints the same session as numbers: what was kept, joined, collapsed, dimmed, hidden - with timestamps, for tuning.
 
-A first real session (66 min, 101 comments) is committed at `test/fixtures/` and is what tuned the current defaults: `ادامه`-announced fragments now join past the normal window (`EXPLICIT_CONTINUATION_MS`), the greeting `اسلام علیکم ورحمت الله استاد` and the title `مفتی` strip before matching, and in-window extras dim instead of vanish (`DIM_IN_WINDOW_EXTRAS: true`).
+Five real sessions (425 comments over ~5 hours) are committed at `test/fixtures/` and are what tuned the current defaults: the continuation window is 60s (at 25s, three real continuation fragments were hidden as second questions), `ادامه`-announced fragments join past any window (`EXPLICIT_CONTINUATION_MS`), the greeting `اسلام علیکم ورحمت الله استاد` and the title `مفتی` strip before matching, and in-window extras dim instead of vanish (`DIM_IN_WINDOW_EXTRAS: true`).
 
 ## Project layout
 

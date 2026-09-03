@@ -10,7 +10,14 @@
 export const CONFIG = {
   // --- Continuation grouping (grouping.js, spec Section 8) ---
 
-  CONTINUATION_WINDOW_MS: 25000,
+  // 60s, raised from 25s after replaying five real sessions (425 comments):
+  // three genuine continuation fragments arrived 37-60s+ after the person's
+  // previous comment ("یعنی توسط پول مونوگراف جور کنند", a mid-word
+  // "…یکنید. اما …" tail, a story continuation) and were hidden as second
+  // questions at 25s. Real viewers type, edit and resend slowly; the feed
+  // cost of a wrong merge is a joined badge on two VISIBLE rows, while the
+  // cost of a wrong split here was destroyed questions.
+  CONTINUATION_WINDOW_MS: 60000,
   NEAR_LIMIT_CHARS: 200,
 
   // The most comments a single logical question may occupy: the question itself
