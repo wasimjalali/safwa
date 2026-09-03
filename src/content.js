@@ -225,9 +225,15 @@
     };
 
     // The comments panel can mount after the page settles, so poll briefly.
+    // Early polls REQUIRE a container that already holds comment rows, so we
+    // don't latch onto an empty wrapper that matches the container selector by
+    // accident. After most of the budget is spent, accept a bare match as a
+    // last resort: watching it is never worse than giving up.
     let attempts = 0;
+    const ROWS_REQUIRED_UNTIL = Math.floor(CONTAINER_POLL_MAX * 0.7);
     const tryFind = () => {
-      const container = dom.findCommentContainer();
+      const requireRows = attempts < ROWS_REQUIRED_UNTIL;
+      const container = dom.findCommentContainer(document, { requireRows });
       if (container) {
         attach(container);
         return;

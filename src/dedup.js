@@ -104,10 +104,25 @@ export function checkDuplicate(matchKey, state, config) {
   return { isDuplicate: false, entry: null, kind: null };
 }
 
-/** Collapse an incoming comment onto an existing entry (keeps the data). */
+/**
+ * Collapse an incoming comment onto an existing entry (keeps the data).
+ *
+ * Stores a slim plain record, NOT the comment object itself: the signature
+ * store lives for the whole session and is unbounded, so retaining the comment
+ * would pin its `.el` DOM node forever - a real memory leak across a
+ * multi-hour live stream, where StreamYard prunes old rows but we'd keep every
+ * detached node reachable. The count + text + who/when is all the data the
+ * session needs.
+ */
 export function collapseOnto(entry, comment) {
   entry.count += 1;
-  entry.duplicates.push(comment);
+  entry.duplicates.push({
+    matchKey: comment.matchKey,
+    displayText: comment.displayText,
+    handle: comment.handle,
+    platform: comment.platform ?? null,
+    timestamp: comment.timestamp,
+  });
   return entry;
 }
 

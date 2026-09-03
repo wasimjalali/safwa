@@ -13,3 +13,6 @@ node_modules/
 # Wrangler local state
 .wrangler/
 deploy/cloudflare/.wrangler/
+
+# local QA screenshots
+/qa-screenshots/

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ṣafwa - Live Q&A Filter",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "صفوة - cleans live Dari/Persian Q&A in StreamYard: collapses duplicates, merges split questions, flags extra questions. Reads the page DOM only (StreamYard has no API).",
   "icons": {
     "16": "icons/icon16.png",

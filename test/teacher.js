@@ -102,11 +102,16 @@ async function handle(comment, state, panel) {
 }
 
 function wireToggle() {
+  document.getElementById("tagline").textContent = CONFIG.LABELS.popupTagline;
+  document.getElementById("footer-label").textContent = CONFIG.LABELS.popupFooter;
+  const hint = document.getElementById("hint");
+  hint.textContent = CONFIG.LABELS.popupHintOn;
   const btn = document.getElementById("toggle");
   btn.addEventListener("click", () => {
     const on = btn.getAttribute("aria-checked") !== "true";
     btn.setAttribute("aria-checked", String(on));
     btn.setAttribute("aria-label", on ? CONFIG.LABELS.popupStatusOn : CONFIG.LABELS.popupStatusOff);
+    hint.textContent = on ? CONFIG.LABELS.popupHintOn : CONFIG.LABELS.popupHintOff;
     document.documentElement.classList.toggle("safwa-disabled", !on);
   });
 }
