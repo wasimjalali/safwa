@@ -32,6 +32,22 @@ Click the Ṣafwa icon in the toolbar to open the popup: the mark, صفوة, and
 
 To see that pair locally: `npm run demo`, then open `http://127.0.0.1:8000/test/teacher.html`.
 
+## Replaying a real broadcast
+
+The strongest test is the teacher's own past session. The audience comments on YouTube, and a YouTube VOD keeps the full live chat - the same comments StreamYard pulled into the studio during the broadcast. Replaying them through the real pipeline (with their real gaps) shows exactly what the teacher would have seen:
+
+```
+yt-dlp --skip-download --write-subs --sub-langs live_chat --sub-format json3 \
+       -o chat.%(ext)s "<YOUTUBE_VOD_URL>"
+node test/convert-live-chat.js chat.live_chat.json test/fixtures/replay-<id>.json
+npm run demo   # then open http://127.0.0.1:8000/test/replay.html
+```
+
+- `test/replay.html` replays the comments at x1 to instant speed, with the real badges and a live decision tally.
+- `node test/replay-analysis.js [fixture]` prints the same session as numbers: what was kept, joined, collapsed, dimmed, hidden - with timestamps, for tuning.
+
+A first real session (66 min, 101 comments) is committed at `test/fixtures/` and is what tuned the current defaults: `ادامه`-announced fragments now join past the normal window (`EXPLICIT_CONTINUATION_MS`), the greeting `اسلام علیکم ورحمت الله استاد` and the title `مفتی` strip before matching, and in-window extras dim instead of vanish (`DIM_IN_WINDOW_EXTRAS: true`).
+
 ## Project layout
 
 ```
@@ -53,9 +69,13 @@ fonts/
 styles.css             badge + dim styles, @font-face, on/off CSS gating
 test/
   mock-comments.js     scripted comment streams for testing without StreamYard
-  run-tests.js         Node test runner for the matching core (39 tests)
+  run-tests.js         Node test runner for the matching core (44 tests)
   demo.html|js         visual simulation harness (npm run demo)
   teacher.html|js      what the teacher sees: popup + annotated comments column
+  replay.html|js       replay a real broadcast's live chat through the pipeline
+  convert-live-chat.js yt-dlp live-chat json3 -> replay fixture converter
+  replay-analysis.js   the same replay as numbers: kept/joined/dimmed/hidden
+  fixtures/            committed real-session replay + raw chat dump
 deploy/
   cloudflare/          live Gemma 4 Worker (Workers AI binding)
   Dockerfile           leftover vLLM image (not the live path)
@@ -151,7 +171,7 @@ New comment -> regex pipeline (instant)
 
 - The regex pipeline still runs first and handles all high-confidence cases instantly.
 - Only exact duplicates auto-collapse. LLM-flagged semantic dups are dimmed + badged, never hidden.
-- `npm test` is 39/39. LLM escalation flags are covered.
+- `npm test` is 44/44. LLM escalation flags are covered.
 - `LLM_ENABLED: false` reverts to pure v1 behavior.
 
 ### Self-hosting (data sovereignty)
@@ -164,7 +184,7 @@ This project is built in phases (spec Section 14). Current status:
 
 - [x] Phase 1: Skeleton (manifest + content script logging on streamyard.com)
 - [x] Phase 2: DOM discovery layer built with research-based selectors, hardened at boot (attach only to a container that holds comment rows)
-- [x] Phase 3: Matching core, proven on mocks (`npm test`: 39/39, acceptance criteria 1-5)
+- [x] Phase 3: Matching core, proven on mocks (`npm test`: 44/44, acceptance criteria 1-5)
 - [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; shipped enabled for v1.0.0)
 - [x] Phase 5: UI layer (in-place annotation with confidence tiers)
 - [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
