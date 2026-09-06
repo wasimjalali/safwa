@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node test/run-tests.js",
+    "replay": "node test/replay-analysis.js",
     "demo": "python3 -m http.server 8000"
   },
   "license": "MIT"

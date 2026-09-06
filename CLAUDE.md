@@ -60,11 +60,11 @@ Key rules for v2:
 
 1. Skeleton (done)
 2. DOM discovery (needs a live studio; placeholders until confirmed)
-3. Matching core, tested on mocks (done, 39/39)
+3. Matching core, tested on mocks (done, 44/44)
 4. Wire core to live DOM (done)
 5. UI layer (done)
 6. Tuning pass (ready, needs a live session)
-7. LLM semantic layer / combo architecture (done, 39/39 tests, Gemma 4 eval 68/68)
+7. LLM semantic layer / combo architecture (done, 44/44 tests, Gemma 4 eval 68/68)
 
 ## Live LLM
 

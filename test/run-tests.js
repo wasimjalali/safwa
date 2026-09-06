@@ -13,7 +13,7 @@ import { normalize } from "../src/normalize.js";
 import { createState, identityKey } from "../src/state.js";
 import { jaccard } from "../src/dedup.js";
 import { processComment } from "../src/grouping.js";
-import { STREAMS } from "./mock-comments.js";
+import { STREAMS, comment } from "./mock-comments.js";
 
 let passed = 0;
 let failed = 0;
@@ -274,6 +274,59 @@ test("a bare greeting normalizes to isGreetingOnly", () => {
   assert.equal(normalize("السلام علیکم", CONFIG).isGreetingOnly, true);
   // a real question is never a greeting, even with a leading honorific
   assert.equal(normalize("سلام استاد، حکم روزه چیست؟", CONFIG).isGreetingOnly, false);
+});
+
+// =====================================================================
+group("Real-session regressions (found by replaying a live YouTube chat)");
+
+test("real session: greeting «اسلام علیکم ورحمت الله استاد» is fully stripped", () => {
+  const a = normalize("اسلام علیکم ورحمت الله استاد درباره قرعه کشی پول پرداخت کنی جواز دارد", CONFIG);
+  const b = normalize("درباره قرعه کشی پول پرداخت کنی جواز دارد", CONFIG);
+  assert.equal(a.matchKey, b.matchKey);
+  // and the title مفتی strips too
+  const c = normalize("مفتی صاحب حکم بیمه چیست؟", CONFIG);
+  assert.equal(c.matchKey, normalize("حکم بیمه چیست؟", CONFIG).matchKey);
+});
+
+test("real session: «ادامه»-announced fragment 36s later still joins the question", () => {
+  const stream = [
+    comment("جواد", "youtube", "من این کار را کردم، اما", 0),
+    comment("جواد", "youtube", "ادامه سوال هنوز برایم مشخص نیست که این ازدواج خیر است یا شر؟", 36000),
+  ];
+  const { decisions } = runStream(stream);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "continuation");
+});
+
+test("real session: a fragment ending «...ادامه» announces the next one past the window", () => {
+  const stream = [
+    comment("کریم", "youtube", "سوال من این است که بیمه شرکتی را حرام میگویید و بیمه حکومتی را جواز میدهید ادامه", 0),
+    comment("کریم", "youtube", "در حالیکه حکومت ها وضعی است و دلیل اش را از کجا اوردید؟", 68000),
+  ];
+  const { decisions } = runStream(stream);
+  assert.equal(decisions[1].type, "continuation");
+});
+
+test("real session: explicit marker does NOT defeat the fragment cap or the far limit", () => {
+  const stream = [
+    comment("سارا", "youtube", "سوال اول من درباره میراث است و", 0),
+    comment("سارا", "youtube", "ادامه دارایی شامل خانه و پول نقد می‌شود چه باید کرد؟", 36000),
+    comment("سارا", "youtube", "ادامه باز هم یک سوال دیگر دارم در همین مورد؟", 60000),
+  ];
+  const { decisions } = runStream(stream);
+  assert.equal(decisions[1].type, "continuation");
+  // third piece is over the cap even though it says «ادامه»
+  assert.equal(decisions[2].type, "extra");
+});
+
+test("real session: plain second question far later is still an extra (marker changes nothing)", () => {
+  const stream = [
+    comment("عمر", "youtube", "حکم نگاه به زن دوم چگونه است؟", 0),
+    comment("عمر", "youtube", "حکم روزه گرفتن در سفر چیست؟", 120000),
+  ];
+  const { decisions } = runStream(stream);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "extra");
 });
 
 // =====================================================================

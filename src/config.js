@@ -10,7 +10,14 @@
 export const CONFIG = {
   // --- Continuation grouping (grouping.js, spec Section 8) ---
 
-  CONTINUATION_WINDOW_MS: 25000,
+  // 60s, raised from 25s after replaying five real sessions (425 comments):
+  // three genuine continuation fragments arrived 37-60s+ after the person's
+  // previous comment ("یعنی توسط پول مونوگراف جور کنند", a mid-word
+  // "…یکنید. اما …" tail, a story continuation) and were hidden as second
+  // questions at 25s. Real viewers type, edit and resend slowly; the feed
+  // cost of a wrong merge is a joined badge on two VISIBLE rows, while the
+  // cost of a wrong split here was destroyed questions.
+  CONTINUATION_WINDOW_MS: 60000,
   NEAR_LIMIT_CHARS: 200,
 
   // The most comments a single logical question may occupy: the question itself
@@ -25,10 +32,23 @@ export const CONFIG = {
   // is a continuation cue, and a new fragment STARTING with one is a cue too.
   // و (and) که (that) یا (or) اما/ولی (but) چون/زیرا (because) تا (so that)
   // به از برای با در (prepositions) را (object marker) هم/نیز (also)
+  // ادامه ("continuation") was added after replaying a real session: viewers
+  // literally open fragments with «ادامه سوال ...», and a fragment ending in
+  // «ادامه...» announces the next one.
   CONNECTOR_WORDS: [
     "و", "که", "یا", "اما", "ولی", "چون", "زیرا", "تا",
     "به", "از", "برای", "با", "در", "را", "هم", "نیز",
+    "ادامه",
   ],
+
+  // Explicit continuation markers stretch the continuation window: a viewer
+  // who starts «ادامه سوال...» (or ends «... ادامه») has ANNOUNCED a fragment,
+  // so the normal CONTINUATION_WINDOW_MS gap limit is relaxed to this for that
+  // pair only. Evidence: a real replayed session had a genuine two-part
+  // question arrive 36s apart (outside the 25s window) with the second part
+  // starting «ادامه سوال» - without this it was hidden as a second question.
+  EXPLICIT_CONTINUATION_WORDS: ["ادامه"],
+  EXPLICIT_CONTINUATION_MS: 180000,
 
   // Terminal punctuation. A previous fragment NOT ending in one of these looks
   // unfinished -> continuation cue. «؟» is the Persian question mark.
@@ -41,14 +61,19 @@ export const CONFIG = {
   // --- Normalization (normalize.js, spec Section 7) ---
 
   // Leading honorifics / greetings stripped from the match key (never from the
-  // displayed text). Written in folded Persian form (ک not ك, ی not ي), because
+  // displayed text). Written in folded Persian form (ک not ك, ی not ی), because
   // stripping runs AFTER letter folding. Dari-flavored. Edit freely.
   // Multi-word greetings are matched longest-first automatically.
+  // «اسلام علیکم» (people drop the ال), «ورحمت الله/ورحمه الله» (both the ت and
+  // ه spellings; ة folds to ه), «وبرکاته» and «مفتی» were added after replaying
+  // a real session where a viewer asked the same question 4 times over an hour
+  // and the un-stripped greeting kept the copies from matching.
   HONORIFICS_TO_STRIP: [
-    "السلام علیکم", "سلام علیکم", "وعلیکم السلام", "علیکم السلام", "صبح بخیر",
+    "السلام علیکم", "سلام علیکم", "اسلام علیکم", "وعلیکم السلام", "علیکم السلام",
+    "ورحمت الله", "ورحمه الله", "وبرکاته", "صبح بخیر",
     "سلام", "استاد", "معلم", "شیخ", "مولوی", "مولانا", "قاری", "حافظ",
     "علامه", "حاجی", "حاج", "جناب", "آقای", "آقا", "خانم", "محترم",
-    "برادر", "خواهر", "دوست", "عزیز", "جان", "صاحب",
+    "برادر", "خواهر", "دوست", "عزیز", "جان", "صاحب", "مفتی",
   ],
 
   // --- Duplicate detection (dedup.js, spec Section 9) ---
@@ -79,11 +104,11 @@ export const CONFIG = {
   // Safety lever for the live-test phase. When true, an extra that lands INSIDE
   // the continuation window is only DIMMED, not hidden, because it MIGHT be a
   // continuation the detector missed (hiding a real question is the costliest
-  // mistake). Default false: hide every extra, in or out of the window, which is
-  // what the teacher wants - he never sees a second question at all. Flip to true
-  // only if a live session shows a real question disappearing; then a quick
-  // second comment stays visible-but-dim instead of vanishing.
-  DIM_IN_WINDOW_EXTRAS: false,
+  // mistake). FLIPPED TO TRUE after replaying a real session: two of the five
+  // in-window extras were plausible continuations (one story setup ending in a
+  // full stop, one nudge referencing an earlier ask), and a dimmed row costs
+  // the teacher a glance while a hidden fragment costs the question.
+  DIM_IN_WINDOW_EXTRAS: true,
 
   // Right-to-left UI for Persian. Counts use Western digits (3) for legibility,
   // since Persian-Indic digits (۳) are hard to read at badge size. Flip to true

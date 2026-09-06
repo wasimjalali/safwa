@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ṣafwa - live-chat replay</title>
+    <link rel="icon" href="/favicon.ico?v=2" sizes="any" />
+    <link rel="icon" type="image/png" href="../icons/icon32.png?v=2" />
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      @font-face {
+        font-family: "Vazirmatn";
+        src: url("../fonts/Vazirmatn-Variable.woff2") format("woff2");
+        font-weight: 100 900;
+        font-display: swap;
+      }
+
+      :root {
+        --studio: #121916;
+        --panel: #1a221e;
+        --line: rgba(244, 239, 227, 0.08);
+        --ink: #ece7d9;
+        --muted: #8b948d;
+        --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: var(--studio);
+        color: var(--ink);
+        font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .stage {
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        height: 100%;
+      }
+
+      .stage-void { background: #0c1210; }
+
+      .feed {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        background: var(--panel);
+        border-inline-start: 1px solid var(--line);
+      }
+
+      .feed-head {
+        flex: 0 0 44px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 16px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-inline-start: auto;
+      }
+      .controls select, .controls button {
+        font: inherit;
+        font-size: 12.5px;
+        color: var(--ink);
+        padding: 5px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(244, 239, 227, 0.06);
+        cursor: pointer;
+      }
+      .controls button { font-weight: 650; }
+      .controls button:hover { background: rgba(244, 239, 227, 0.12); }
+      .controls select:focus-visible, .controls button:focus-visible {
+        outline: 2px solid #c8a24a;
+        outline-offset: 1px;
+      }
+      .controls label {
+        display: flex; align-items: center; gap: 5px;
+        font-size: 12px; color: var(--muted); cursor: pointer;
+      }
+      #progress { font-variant-numeric: tabular-nums; font-weight: 450; }
+
+      #panel {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .sy-comment {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px 14px;
+      }
+      .sy-comment + .sy-comment { border-top: 1px solid var(--line); }
+      .sy-avatar {
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(244, 239, 227, 0.1);
+        color: var(--ink);
+        font-size: 10px;
+        font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .sy-body { min-width: 0; direction: rtl; text-align: right; flex: 1; }
+      .sy-author {
+        font-family: "Vazirmatn", Tahoma, sans-serif;
+        font-weight: 700;
+        font-size: 13px;
+        margin-inline-end: 6px;
+      }
+      .sy-time { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+      .sy-text {
+        margin-top: 2px;
+        font-family: "Vazirmatn", Tahoma, sans-serif;
+        font-size: 16px;
+        line-height: 1.85;
+      }
+
+      .side {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 20px;
+        overflow-y: auto;
+      }
+      .side h2 { margin: 0; font-size: 14px; font-weight: 700; }
+      .side p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+      .stats { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; }
+      .stats dt { color: var(--muted); font-size: 13px; }
+      .stats dd {
+        margin: 0; text-align: right;
+        font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px;
+      }
+
+      /* The real popup, as a Chrome window over the studio. Kept in sync
+         with popup/popup.css (brand bar + tagline, hint line, footer). */
+      .chrome-popup {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 50;
+        width: 300px;
+        overflow: hidden;
+        border-radius: 8px;
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+        background: #f7f3ea;
+      }
+      .chrome-popup .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px 12px 12px;
+        background: #0a3d32;
+        color: #f7f3ea;
+        font-family: "Vazirmatn", Tahoma, sans-serif;
+      }
+      .chrome-popup .brand__logo { width: 30px; height: 30px; border-radius: 8px; }
+      .chrome-popup .brand__names { flex: 1; min-width: 0; }
+      .chrome-popup .brand__fa {
+        margin: 0; font-size: 17px; font-weight: 700; line-height: 1.2;
+      }
+      .chrome-popup .brand__tagline {
+        margin: 1px 0 0;
+        font-size: 11.5px; font-weight: 450; line-height: 1.5;
+        color: rgba(247, 243, 234, 0.72);
+      }
+      .chrome-popup .switch {
+        position: relative; flex: 0 0 auto;
+        width: 48px; height: 28px; padding: 0;
+        border: 1px solid rgba(247, 243, 234, 0.2);
+        border-radius: 999px;
+        background: #8a8474;
+        cursor: pointer;
+      }
+      .chrome-popup .switch[aria-checked="true"] {
+        background: #2f9a72; border-color: #2f9a72;
+      }
+      .chrome-popup .switch__knob {
+        position: absolute; top: 2px; inset-inline-start: 2px;
+        width: 22px; height: 22px; border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(20, 34, 28, 0.28);
+        transition: inset-inline-start 150ms var(--ease-out);
+      }
+      .chrome-popup .switch[aria-checked="true"] .switch__knob {
+        inset-inline-start: calc(100% - 24px);
+      }
+      .chrome-popup .switch:focus-visible {
+        outline: 2px solid #f7f3ea; outline-offset: 2px;
+      }
+      .chrome-popup .hint {
+        margin: 0; padding: 12px 14px; min-height: 62px;
+        font-family: "Vazirmatn", Tahoma, sans-serif;
+        font-size: 12.5px; font-weight: 450; line-height: 1.9;
+        color: #5e6a63;
+      }
+      .chrome-popup .footer {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 8px 14px;
+        border-top: 1px solid #e4dfd2;
+        font-family: "Vazirmatn", Tahoma, sans-serif;
+        font-size: 11.5px; color: #5e6a63;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .chrome-popup .switch__knob { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="stage-void"></div>
+      <section class="feed">
+        <div class="feed-head">
+          Comments
+          <span id="progress">0 / 0</span>
+          <div class="controls">
+            <select id="session" aria-label="Session"></select>
+            <select id="speed" aria-label="Replay speed">
+              <option value="1">×1 real time</option>
+              <option value="10" selected>×10</option>
+              <option value="60">×60</option>
+              <option value="0">Instant</option>
+            </select>
+            <button id="play" type="button">Play</button>
+            <button id="restart" type="button">Restart</button>
+            <label><input type="checkbox" id="use-llm" /> Gemma 4</label>
+          </div>
+        </div>
+        <div id="panel"></div>
+      </section>
+      <aside class="side">
+        <div>
+          <h2>Live-chat replay</h2>
+          <p>
+            Real comments from a real broadcast (YouTube live-chat replay),
+            pushed through the real pipeline with their real gaps. This is the
+            tuning instrument: what you see here is what the teacher would
+            have seen. The Gemma 4 checkbox asks the live Worker for semantic
+            duplicates; it is off by default so a replay costs nothing.
+          </p>
+        </div>
+        <div>
+          <h2>Decisions so far</h2>
+          <dl class="stats" id="stats"></dl>
+        </div>
+      </aside>
+    </div>
+
+    <div class="chrome-popup" dir="rtl">
+      <header class="brand">
+        <img class="brand__logo" src="../icons/icon48.png" alt="" />
+        <div class="brand__names">
+          <h1 class="brand__fa">صفوة</h1>
+          <p id="tagline" class="brand__tagline"></p>
+        </div>
+        <button id="toggle" class="switch" role="switch" aria-checked="true" aria-label="فعال">
+          <span class="switch__knob"></span>
+        </button>
+      </header>
+      <p id="hint" class="hint"></p>
+      <footer class="footer">
+        <span id="footer-label"></span>
+      </footer>
+    </div>
+
+    <script type="module" src="./replay.js"></script>
+  </body>
+</html>

@@ -34,8 +34,30 @@ function endsWithConnector(text, connectors) {
 }
 
 /**
+ * Does either side of the pair carry an EXPLICIT continuation marker
+ * (EXPLICIT_CONTINUATION_WORDS, e.g. a fragment starting «ادامه سوال...» or
+ * ending «... ادامه»)? Such a pair announces itself, so the normal window can
+ * be stretched (see isContinuation).
+ */
+function hasExplicitMarker(prev, next, config) {
+  const markers = config.EXPLICIT_CONTINUATION_WORDS ?? [];
+  if (markers.length === 0) return false;
+  const first = firstWord(next).toLowerCase();
+  if (markers.includes(first)) return true;
+  const prevWords = prev.trim().toLowerCase().match(/[\p{L}\p{N}']+/gu);
+  const last = prevWords ? prevWords[prevWords.length - 1] : "";
+  return markers.includes(last);
+}
+
+/**
  * Is `comment` a continuation of the handle's open `block`? Requires BOTH the
  * time condition AND at least one continuation cue (spec Section 8).
+ *
+ * Time condition: within CONTINUATION_WINDOW_MS of the block's last fragment.
+ * One stretch, on purpose: if EITHER side carries an explicit marker
+ * («ادامه...»), the pair is allowed up to EXPLICIT_CONTINUATION_MS instead -
+ * a viewer who announces a fragment should not lose it to a slow connection.
+ * The fragment cap (MAX_COMMENTS_PER_QUESTION) is still enforced upstream.
  *
  * Tuning rule: inside the window, ambiguity resolves toward continuation,
  * because wrongly splitting is cheap and wrongly hiding a real question is not.
@@ -43,12 +65,16 @@ function endsWithConnector(text, connectors) {
 export function isContinuation(block, comment, config) {
   if (!block) return false;
 
-  // Time condition: within the window since the block's last fragment.
-  const gap = comment.timestamp - block.lastTimestamp;
-  if (gap > config.CONTINUATION_WINDOW_MS) return false;
-
   const prev = block.lastDisplayText.trim();
   const next = comment.displayText.trim();
+
+  // Time condition: within the window since the block's last fragment,
+  // stretched for announced (explicitly marked) fragment pairs.
+  const gap = comment.timestamp - block.lastTimestamp;
+  const limit = hasExplicitMarker(prev, next, config)
+    ? Math.max(config.EXPLICIT_CONTINUATION_MS, config.CONTINUATION_WINDOW_MS)
+    : config.CONTINUATION_WINDOW_MS;
+  if (gap > limit) return false;
 
   const cueNoTerminal = prev.length > 0 && !config.TERMINAL_PUNCTUATION.includes(lastChar(prev));
   const cueConnectorEnd =
