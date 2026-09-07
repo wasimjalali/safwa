@@ -76,6 +76,11 @@
     out.secondRowMatches = second === out.commentNode;
   }
 
+  // 4. Ground truth: the first row's actual HTML, trimmed. Selector guesses
+  //    can be ambiguous; the raw markup is not. 1200 chars is enough to see
+  //    the row's own tag, its classes, and its inner field structure.
+  out.firstRowHTML = row.outerHTML.replace(/\s+/g, " ").slice(0, 1200);
+
   console.log("[safwa-discovery] paste this into SELECTORS (src/config.js):");
   console.log(JSON.stringify(out, null, 2));
 })();
