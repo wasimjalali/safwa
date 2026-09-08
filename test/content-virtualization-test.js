@@ -97,7 +97,7 @@ globalThis.chrome = {
   },
   storage: {
     local: {
-      get: () => Promise.resolve({}),
+      get: () => Promise.resolve({ safwaLlmEnabled: false }),
     },
     onChanged: {
       addListener() {},

@@ -52,8 +52,19 @@
     import(url("src/llm-classifier.js")),
   ])
     .then(([configMod, dom, stateMod, grouping, ui, llm]) => {
+      const runtimeConfig = Object.assign({}, configMod.CONFIG);
       wireEnabledToggle(configMod.STORAGE_KEYS);
-      boot(configMod.CONFIG, dom, stateMod, grouping, ui, llm);
+      boot(
+        runtimeConfig,
+        dom,
+        stateMod,
+        grouping,
+        ui,
+        llm,
+        configMod.STORAGE_KEYS,
+        configMod.readStoredSettings,
+        configMod.applyStoredSettings
+      );
     })
     .catch((err) => {
       console.warn(`${TAG} failed to load modules; doing nothing (fail-safe).`, err);
@@ -91,7 +102,7 @@
     }
   }
 
-  function boot(CONFIG, dom, stateMod, grouping, ui, llm) {
+  function boot(CONFIG, dom, stateMod, grouping, ui, llm, STORAGE_KEYS, readStoredSettings, applyStoredSettings) {
     if (!dom.selectorsConfirmed()) {
       console.warn(
         `${TAG} StreamYard selectors are unconfirmed (SELECTORS.CONFIRMED is false ` +
@@ -107,6 +118,8 @@
     const seenFingerprints = new WeakMap();
     const seenComments = new WeakMap();
     let scheduled = false;
+    let observedContainer = null;
+    let sessionGen = 0;
 
     const schedule = () => {
       if (scheduled) return;
@@ -154,13 +167,10 @@
             seenComments.set(node, decision.target.firstComment);
           }
 
-          // Combo architecture: if the regex pipeline flagged this as needing
-          // LLM review, asynchronously ask the self-hosted LLM whether it's a
-          // semantic duplicate. If the LLM says "duplicate", re-annotate the
-          // node as a semantic duplicate (dimmed + badged, never hidden). If the
-          // LLM is unreachable or says "primary", the regex decision stands.
+          // Regex-uncertain cases: LLM confirms before we hide or count.
+          // Timeout leaves the regex look in place (never hide a maybe).
           if (decision.needsLlmReview && CONFIG.LLM_ENABLED) {
-            llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm);
+            llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm, grouping, state, ui, sessionGen);
           }
         } catch (err) {
           // One bad node must never break the rest of the feed.
@@ -170,49 +180,58 @@
     };
 
     /*
-     * Asynchronously ask the LLM if this comment is a semantic duplicate of
-     * something already in the feed. This runs AFTER the regex pipeline has
-     * already rendered its decision, so the feed is never blocked. If the LLM
-     * says "duplicate", we re-annotate the node (dim + badge). If it says
-     * "primary" or is unreachable, the regex annotation stays as-is.
-     *
-     * The node may have been removed from the DOM by the time the LLM responds
-     * (StreamYard re-render, virtualized scroll). We check isConnected before
-     * touching it.
+     * Asynchronously ask the LLM to confirm a regex-uncertain decision.
+     * Runs AFTER the regex render so the feed is never blocked. Guard against
+     * a recycled virtual-scroller row before mutating state.
      */
-    function llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm) {
+    function llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm, grouping, state, ui, gen) {
       llm
-        .classifyComment(comment, decision.recentQuestions, CONFIG)
+        .classifyComment(
+          comment,
+          decision.recentQuestions,
+          CONFIG,
+          llm.llmContextFromDecision(comment, decision)
+        )
         .then((result) => {
-          if (!result) return; // LLM unavailable or parse failure; regex stands
-          if (result.classification !== "duplicate") return; // LLM says primary
-
-          // LLM says this is a semantic duplicate. Re-annotate: dim + badge,
-          // never hide. Only the regex pipeline's exact match can auto-collapse.
-          if (!node.isConnected) return; // node left the DOM while we waited
-          // StreamYard recycles virtual-scroller rows. Ignore a result for old
-          // content if this node now represents another comment.
+          if (!result) return;
+          if (gen !== sessionGen) return;
+          if (!node.isConnected) return;
           if (seenFingerprints.get(node) !== fingerprint) return;
-          node.classList.remove("safwa-primary");
-          node.classList.add("safwa-dim");
-          const dir = CONFIG.UI_DIRECTION;
-          let badge = node.querySelector(".safwa-badge.safwa-badge--semantic");
-          if (!badge) {
-            badge = document.createElement("span");
-            badge.className = "safwa-badge safwa-badge--semantic";
-            node.appendChild(badge);
+          const next = grouping.applyLlmOverride(decision, result, state, CONFIG);
+          if (!next || next === decision) return;
+          ui.render(next, CONFIG);
+          if (next.target?.firstComment?.el === node) {
+            seenComments.set(node, next.target.firstComment);
           }
-          badge.setAttribute("dir", dir);
-          badge.textContent = CONFIG.LABELS.semanticDuplicate;
-          node.setAttribute(ANNOTATED_ATTR_LLM, "semantic_duplicate");
-          console.log(`${TAG} LLM flagged a semantic duplicate.`);
+          for (const extra of next.alsoRender || []) {
+            if (extra?.comment?.el) ui.render(extra, CONFIG);
+          }
+          node.setAttribute(ANNOTATED_ATTR_LLM, next.type);
+          console.log(`${TAG} LLM overrode regex → ${next.type}${next.hide ? " (hidden)" : ""}.`);
         })
         .catch(() => {
           // Silent: the regex decision already stands. No need to warn.
         });
     }
 
+    function rebuild(reason) {
+      sessionGen += 1;
+      state = stateMod.createState();
+      const container = observedContainer;
+      if (!container?.isConnected) return;
+      for (const node of dom.collectCommentNodes(container)) {
+        seenFingerprints.delete(node);
+        seenComments.delete(node);
+        node.removeAttribute(SEEN_ATTR);
+        pending.add(node);
+      }
+      schedule();
+      console.log(`${TAG} rebuilt the feed (${reason}).`);
+    }
+
     const attach = (container) => {
+      if (observedContainer === container) return;
+      observedContainer = container;
       console.log(`${TAG} comments container found; observing for new comments.`);
 
       // Seed state from comments already on screen, then watch for new ones.
@@ -259,6 +278,8 @@
         clearInterval(watchdog);
         observer.disconnect();
         pending.clear();
+        observedContainer = null;
+        sessionGen += 1;
         state = stateMod.createState();
         console.warn(`${TAG} comments container left the DOM (StreamYard re-render); re-attaching.`);
         attempts = 0;
@@ -292,6 +313,39 @@
         attempts < CONTAINER_POLL_MAX ? CONTAINER_POLL_MS : CONTAINER_RECHECK_MS
       );
     };
-    tryFind();
+    try {
+      chrome.storage.local
+        .get(null)
+        .then((items) => {
+          applyStoredSettings(CONFIG, readStoredSettings(items));
+          tryFind();
+        })
+        .catch((err) => {
+          console.warn(`${TAG} could not read settings; using defaults.`, err);
+          tryFind();
+        });
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local") return;
+        if (STORAGE_KEYS.resetAt in changes) {
+          rebuild("reset");
+          return;
+        }
+        const settingKeys = [
+          STORAGE_KEYS.collapseDuplicates,
+          STORAGE_KEYS.hideExtras,
+          STORAGE_KEYS.joinContinuations,
+          STORAGE_KEYS.llmEnabled,
+          STORAGE_KEYS.hideGreetings,
+        ];
+        if (!settingKeys.some((key) => key in changes)) return;
+        chrome.storage.local.get(null).then((items) => {
+          applyStoredSettings(CONFIG, readStoredSettings(items));
+          rebuild("settings");
+        });
+      });
+    } catch (err) {
+      console.warn(`${TAG} settings storage unavailable; using defaults.`, err);
+      tryFind();
+    }
   }
 })();

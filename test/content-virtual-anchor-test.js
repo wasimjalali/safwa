@@ -109,7 +109,7 @@ globalThis.chrome = {
     getURL: (path) => new URL(`../${path}`, import.meta.url).href,
   },
   storage: {
-    local: { get: () => Promise.resolve({}) },
+    local: { get: () => Promise.resolve({ safwaLlmEnabled: false }) },
     onChanged: { addListener() {} },
   },
 };

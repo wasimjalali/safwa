@@ -5,18 +5,18 @@
  * selector knowledge stays in config.js / dom.js.
  *
  * All visible text comes from CONFIG.LABELS (Dari), and badges render
- * right-to-left so Persian shows correctly. Confidence tiers (Section 10 + the
- * v1 human-in-the-loop rule):
+ * right-to-left so Persian shows correctly. Confidence tiers:
  *   - Greeting             -> left untouched (a salutation, never a question).
- *   - Exact duplicate     -> collapse (hide) + count badge on the original, but
- *                            ONLY if AUTO_COLLAPSE_EXACT_DUPLICATES.
- *   - Fuzzy / near dup     -> marked + dimmed, NEVER hidden.
+ *   - Exact / token-set / LLM-confirmed duplicate -> collapse (hide) + count
+ *                            badge on the original.
+ *   - Fuzzy / near dup     -> marked + dimmed until the LLM confirms (then hide).
  *   - Continuation merge   -> "joined" badge, both fragments stay visible.
- *   - Extra (2nd) question -> marked + dimmed, NEVER hidden in v1.
+ *   - Extra (2nd) question -> dimmed + badged until the LLM confirms extra,
+ *                            then hidden with no badge. Timeout keeps it visible.
  *
  * Hiding is reversible: collapsed rows keep their data in state and the popup
- * OFF switch restores StreamYard's full native feed. Fuzzy duplicates are still
- * never hidden (AUTO_HIDE_ANYTHING_AMBIGUOUS stays false).
+ * OFF switch restores StreamYard's full native feed. Ambiguous extras/fuzzies
+ * are not hidden until the LLM confirms (AUTO_HIDE_ANYTHING_AMBIGUOUS stays false).
  */
 
 const ANNOTATED_ATTR = "data-safwa-annotated";
@@ -70,6 +70,11 @@ function originalNodeOf(decision) {
   return decision.target?.firstComment?.el ?? null;
 }
 
+function isCollapsedAnchor(node) {
+  const cl = node?.classList;
+  return typeof cl?.contains === "function" && cl.contains("safwa-collapsed");
+}
+
 /**
  * Act on a pipeline decision. Always fail safe: missing node -> do nothing
  * (a throw is also caught upstream in content.js).
@@ -89,8 +94,11 @@ export function render(decision, config) {
 
   switch (decision.type) {
     case "greeting":
-      // A pure greeting/honorific. Not a question: leave the row exactly as
-      // StreamYard drew it. No badge, no dim, no hide.
+      // Regex-certain greetings hide when the teacher toggle is on. A courtesy
+      // maybe stays visible until the LLM confirms (never hide a maybe).
+      if (decision.hide && config.HIDE_GREETINGS !== false) {
+        node.classList.add("safwa-collapsed");
+      }
       break;
 
     case "primary":
@@ -105,20 +113,21 @@ export function render(decision, config) {
     case "duplicate": {
       const original = originalNodeOf(decision);
 
-      // Cost-asymmetry guard: if the original row is gone from the DOM
-      // (virtualized scroll or a re-render pruned it), or this row IS the
-      // representative already, it is the only visible copy of the question.
-      // Never hide it; adopt it so the count badge lands somewhere visible.
-      if (!original || original === node || !original.isConnected) {
+      // Cost-asymmetry guard: if the original row is gone, hidden, or this row
+      // IS the representative, it is the only visible copy. Never hide it.
+      if (!original || original === node || !original.isConnected || isCollapsedAnchor(original)) {
         if (decision.target?.firstComment) decision.target.firstComment.el = node;
         setCountBadge(node, decision.count, config);
         break;
       }
 
       setCountBadge(original, decision.count, config);
-      const isExact = decision.kind === "exact";
-      if (isExact && config.AUTO_COLLAPSE_EXACT_DUPLICATES && !config.AUTO_HIDE_ANYTHING_AMBIGUOUS) {
-        node.classList.add("safwa-collapsed"); // data retained in state; only hidden
+      const hideDup =
+        (decision.kind === "exact" || decision.kind === "semantic") &&
+        config.AUTO_COLLAPSE_EXACT_DUPLICATES &&
+        !config.AUTO_HIDE_ANYTHING_AMBIGUOUS;
+      if (hideDup) {
+        node.classList.add("safwa-collapsed");
         collapsedCopies.set(node, original);
       } else {
         node.classList.add("safwa-dim");
@@ -128,19 +137,15 @@ export function render(decision, config) {
     }
 
     case "extra": {
-      // In v1, HIDE_EXTRA_QUESTIONS stays false: every flagged extra remains
-      // visible, dimmed and badged because it might be a missed continuation.
-      // The window guard remains as defense in depth if that flag changes later.
-      const keepVisible =
-        !config.HIDE_EXTRA_QUESTIONS ||
-        (config.DIM_IN_WINDOW_EXTRAS && decision.withinWindow);
-      if (keepVisible) {
+      // Regex extras stay visible (dim + badge) until the LLM confirms they
+      // are a genuine second question. Confirmed extras are hidden with no badge.
+      // Timeout leaves the dimmed row in place so a missed continuation is not
+      // deleted.
+      if (decision.hide && config.HIDE_CONFIRMED_EXTRAS !== false) {
+        node.classList.add("safwa-collapsed");
+      } else {
         node.classList.add("safwa-dim");
         ensureBadge(node, "extra", config.LABELS.secondQuestion, dir);
-      } else {
-        // Filter it out of the feed entirely. Data is retained in state; the
-        // popup OFF switch reveals StreamYard's full native feed again.
-        node.classList.add("safwa-collapsed");
       }
       break;
     }

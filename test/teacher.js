@@ -7,9 +7,9 @@
 
 import { CONFIG } from "../src/config.js";
 import { createState } from "../src/state.js";
-import { processComment } from "../src/grouping.js";
+import { processComment, applyLlmOverride } from "../src/grouping.js";
 import { render } from "../src/ui.js";
-import { classifyComment } from "../src/llm-classifier.js";
+import { classifyComment, llmContextFromDecision } from "../src/llm-classifier.js";
 import { STREAMS, T } from "./mock-comments.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -75,19 +75,6 @@ function buildRow(comment) {
   return row;
 }
 
-function applySemanticBadge(row) {
-  row.classList.remove("safwa-primary");
-  row.classList.add("safwa-dim");
-  let badge = row.querySelector(".safwa-badge.safwa-badge--semantic");
-  if (!badge) {
-    badge = document.createElement("span");
-    badge.className = "safwa-badge safwa-badge--semantic";
-    row.appendChild(badge);
-  }
-  badge.setAttribute("dir", CONFIG.UI_DIRECTION);
-  badge.textContent = CONFIG.LABELS.semanticDuplicate;
-}
-
 async function handle(comment, state, panel) {
   const row = buildRow(comment);
   panel.appendChild(row);
@@ -96,8 +83,19 @@ async function handle(comment, state, panel) {
   const decision = processComment(comment, state, CONFIG);
   render(decision, CONFIG);
   if (decision.needsLlmReview && CONFIG.LLM_ENABLED) {
-    const result = await classifyComment(comment, decision.recentQuestions, CONFIG);
-    if (result?.classification === "duplicate") applySemanticBadge(row);
+    const result = await classifyComment(
+      comment,
+      decision.recentQuestions,
+      CONFIG,
+      llmContextFromDecision(comment, decision)
+    );
+    const next = applyLlmOverride(decision, result, state, CONFIG);
+    if (next && next !== decision) {
+      render(next, CONFIG);
+      for (const extra of next.alsoRender || []) {
+        if (extra?.comment?.el) render(extra, CONFIG);
+      }
+    }
   }
 }
 

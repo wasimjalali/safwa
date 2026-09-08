@@ -70,11 +70,30 @@ export const CONFIG = {
   // and the un-stripped greeting kept the copies from matching.
   HONORIFICS_TO_STRIP: [
     "السلام علیکم", "سلام علیکم", "اسلام علیکم", "وعلیکم السلام", "علیکم السلام",
-    "ورحمت الله", "ورحمه الله", "وبرکاته", "صبح بخیر",
+    "ورحمت الله", "ورحمه الله", "وبرکاته", "صبح بخیر", "شب بخیر",
+    "جزاکم الله خیرا", "جزاکم الله", "جزاک الله",
+    "بارک الله فیکم", "بارک الله",
+    "الحمد لله", "الحمدلله", "ماشاء الله", "ماشاالله",
+    "امین یا رب", "امین",
+    "فی امان الله", "خسته نباشید", "زنده باشید", "موفق باشید",
+    "خداحافظ", "خدانگهدار", "درود",
+    "ممنون", "تشکر", "مرسی", "سپاس", "یا حق",
     "سلام", "استاد", "معلم", "شیخ", "مولوی", "مولانا", "قاری", "حافظ",
     "علامه", "حاجی", "حاج", "جناب", "آقای", "آقا", "خانم", "محترم",
     "برادر", "خواهر", "دوست", "عزیز", "جان", "صاحب", "مفتی",
   ],
+
+  // A leftover after honorific strip that still looks like thanks/blessing, not
+  // a question. Used only to ask the LLM; never enough to hide on its own.
+  COURTESY_HINTS: [
+    "جزاکم", "جزاک", "بارک", "الحمد", "الحمدلله", "ماشاء", "ماشاالله",
+    "امین", "درود", "خداحافظ", "خدانگهدار", "ممنون", "تشکر", "مرسی", "سپاس",
+  ],
+  QUESTION_STEMS: [
+    "چیست", "چرا", "چطور", "چگونه", "آیا", "حکم", "چی", "کی", "کجا",
+    "چند", "کدام", "میشود", "میشه", "سوال",
+  ],
+  COURTESY_MAX_TOKENS: 6,
 
   // --- Duplicate detection (dedup.js, spec Section 9) ---
 
@@ -90,8 +109,13 @@ export const CONFIG = {
   // --- UI behavior (ui.js, spec Section 10) ---
 
   AUTO_COLLAPSE_EXACT_DUPLICATES: true,
-  // Must stay false in v1: ambiguous cases are marked, never hidden.
+  // Must stay false: ambiguous cases are marked, never hidden until confirmed.
   AUTO_HIDE_ANYTHING_AMBIGUOUS: false,
+
+  // Teacher settings (popup). Defaults are the live-show recommendations.
+  JOIN_CONTINUATIONS: true,
+  HIDE_CONFIRMED_EXTRAS: true,
+  HIDE_GREETINGS: true,
 
   // Must stay false in v1: a flagged second question might be a continuation
   // the detector missed, so it remains visible, dimmed and badged.
@@ -112,23 +136,22 @@ export const CONFIG = {
   UI_DIRECTION: "rtl",
   USE_PERSIAN_DIGITS_IN_UI: false,
 
-  // --- LLM semantic classifier (combo architecture, v2) ---
+  // --- LLM semantic classifier (combo architecture) ---
   //
-  // The regex pipeline handles 80-90% of comments instantly. When a comment
-  // is ambiguous (fuzzy match below threshold, or a potential semantic duplicate
-  // with zero shared tokens), it is sent to the self-hosted LLM for a second
-  // opinion. The LLM decision is advisory: it can mark a comment as a
-  // "semantic_duplicate" but never hides it. Only the regex pipeline's exact
-  // match can auto-collapse.
+  // Regex decides instantly wherever it is certain (exact text, token-set
+  // identity, announced continuation, greetings). Everywhere it is only
+  // "probably" — semantic duplicates, cue-less splits, extras — regex paints
+  // first so the live feed never waits, then the LLM must confirm before we
+  // hide or count. Timeout / garbage leaves the regex look (never hide a maybe).
   //
-  // Advisory LLM: Gemma 4 26B on Cloudflare Workers AI (eval winner).
+  // Advisory model: Gemma 4 26B on Cloudflare Workers AI.
   // The extension calls a thin Worker so the API token never sits in the
   // unpacked Chrome package. Deploy: deploy/cloudflare.
   LLM_ENABLED: true,
   LLM_ENDPOINT: "https://safwa-llm.karko-ai.workers.dev/v1/chat/completions",
   LLM_MODEL: "@cf/google/gemma-4-26b-a4b-it",
   LLM_TIMEOUT_MS: 8000, // fall back to regex if no response in 8s
-  LLM_MAX_CONTEXT_COMMENTS: 8, // send this many recent questions for comparison
+  LLM_MAX_CONTEXT_COMMENTS: 30, // unique questions from this session for late paraphrases
 
   // Dari badge + popup labels. Edit the wording here; nothing else needs to
   // change. {n} in COUNT is replaced with the (optionally Persian) digit count.
@@ -143,20 +166,107 @@ export const CONFIG = {
     popupTagline: "فلتر سوالات پخش زنده",          // "live stream question filter"
     popupStatusOn: "فعال",                          // "on"
     popupStatusOff: "غیرفعال",                      // "off"
-    popupHintOn: "سوال‌های تکراری جمع می‌شوند و سوال‌های اضافه نشانی می‌شوند",
+    popupHintOn: "سوال‌های تکراری جمع می‌شوند و سوال دوم پنهان می‌شود",
     popupHintOff: "ستون نظرات بدون هیچ تغییری نمایش داده می‌شود",
     popupFooter: "روی StreamYard کار می‌کند",       // "works on StreamYard"
+    popupLiveTab: "فلتر",
+
+    settingsHeading: "تنظیمات",
+    settingHelp: "توضیح",
+    settingOn: "اگر روشن باشد",
+    settingOff: "اگر خاموش باشد",
+    settingWhat: "چه می‌کند",
+    settingNot: "چه نمی‌کند",
+
+    settingCollapse: "جمع کردن سوال‌های تکراری",
+    settingCollapseOn: [
+      "چند نفر یک سوال را بپرسند، فقط یکی در ستون می‌ماند.",
+      "روی همان نوشته می‌شود چند بار پرسیده شد.",
+    ],
+    settingCollapseOff: [
+      "همهٔ همان سوال‌ها در ستون می‌مانند.",
+      "هیچ ردیفی به‌خاطر تکرار پنهان نمی‌شود.",
+    ],
+
+    settingHideExtra: "پنهان کردن سوال دوم هر نفر",
+    settingHideExtraOn: [
+      "اگر یک نفر سوال جداگانهٔ دیگری بفرستد، بعد از تأیید از ستون برداشته می‌شود.",
+    ],
+    settingHideExtraOff: [
+      "سوال دوم همان‌جا می‌ماند.",
+      "فقط کم‌رنگ می‌شود تا مشخص باشد سوال اول نیست.",
+    ],
+
+    settingJoin: "وصل کردن سوال دو تکه",
+    settingJoinOn: "اگر یک سوال در دو پیام پشت‌سرهم بیاید، به هم وصل می‌شوند و هر دو دیده می‌شوند.",
+    settingJoinOff: "هر پیام جدا می‌ماند، حتی اگر ادامهٔ همان حرف باشد.",
+
+    settingHideGreetings: "پنهان کردن سلام و دعا",
+    settingHideGreetingsOn: [
+      "سلام، تشکر و دعا که سوال نیستند از ستون برداشته می‌شوند.",
+    ],
+    settingHideGreetingsOff: [
+      "سلام و دعا هم در ستون می‌مانند.",
+    ],
+
+    settingLlm: "فهمیدن معنی یکسان",
+    settingLlmOn: [
+      "اگر دو نفر یک چیز را با کلمه‌های مختلف بپرسند، یکی شمرده می‌شود.",
+      "سوال دو تکه بدون کلمهٔ «ادامه» هم می‌تواند وصل شود.",
+    ],
+    settingLlmOff: [
+      "فقط سوال‌هایی که متن‌شان خیلی شبیه است جمع می‌شوند.",
+      "معنی یکسان با کلمه‌های مختلف دیگر با هم مقایسه نمی‌شود.",
+    ],
+
+    resetSession: "شروع تازه برای این پخش",
+    resetDone: "حافظهٔ این پخش پاک شد.",
+    resetWhat: [
+      "صفوة سوال‌هایی را که تا حالا در این پخش دیده از یاد می‌برد.",
+      "از الان از نو می‌شمارد.",
+    ],
+    resetNot: [
+      "پیام‌های استریم‌یارد پاک نمی‌شوند.",
+      "فقط حافظهٔ صفوة صفر می‌شود.",
+    ],
   },
 };
 
 /*
  * chrome.storage keys shared by the popup and the content script. The popup
  * writes, the content script reads + listens. Default is enabled; only an
- * explicit `false` turns the filter off.
+ * explicit `false` turns a flag off.
  */
 export const STORAGE_KEYS = {
   enabled: "safwaEnabled",
+  collapseDuplicates: "safwaCollapseDuplicates",
+  hideExtras: "safwaHideExtras",
+  joinContinuations: "safwaJoinContinuations",
+  llmEnabled: "safwaLlmEnabled",
+  hideGreetings: "safwaHideGreetings",
+  resetAt: "safwaResetAt",
 };
+
+/** Read teacher settings from chrome.storage.local items. Missing keys default on. */
+export function readStoredSettings(items = {}) {
+  return {
+    enabled: items[STORAGE_KEYS.enabled] !== false,
+    collapseDuplicates: items[STORAGE_KEYS.collapseDuplicates] !== false,
+    hideExtras: items[STORAGE_KEYS.hideExtras] !== false,
+    joinContinuations: items[STORAGE_KEYS.joinContinuations] !== false,
+    llmEnabled: items[STORAGE_KEYS.llmEnabled] !== false,
+    hideGreetings: items[STORAGE_KEYS.hideGreetings] !== false,
+  };
+}
+
+/** Overlay teacher settings onto a runtime CONFIG object. */
+export function applyStoredSettings(config, settings) {
+  config.AUTO_COLLAPSE_EXACT_DUPLICATES = settings.collapseDuplicates;
+  config.HIDE_CONFIRMED_EXTRAS = settings.hideExtras;
+  config.JOIN_CONTINUATIONS = settings.joinContinuations;
+  config.LLM_ENABLED = settings.llmEnabled;
+  config.HIDE_GREETINGS = settings.hideGreetings;
+}
 
 /*
  * StreamYard DOM selectors (spec Section 12). Confirmed against a live studio

@@ -97,7 +97,12 @@ export function checkDuplicate(matchKey, state, config) {
 
     if (isDup) {
       const entry = state.signatures.get(candidateKey);
-      if (entry) return { isDuplicate: true, entry, kind: "fuzzy" };
+      if (entry) {
+        // Identical token set (reorder / same words) is as certain as an exact
+        // map hit. Partial overlap stays fuzzy and must wait for the LLM.
+        const kind = sim >= 1 ? "exact" : "fuzzy";
+        return { isDuplicate: true, entry, kind, similarity: sim };
+      }
     }
   }
 
@@ -124,6 +129,23 @@ export function collapseOnto(entry, comment) {
     timestamp: comment.timestamp,
   });
   return entry;
+}
+
+/**
+ * Drop a signature that should never have been registered (e.g. an extra the
+ * LLM reclassified as a continuation or a duplicate of an older question).
+ * Only safe when this entry still has count 1 and no collapsed copies.
+ */
+export function unregisterSignature(matchKey, state) {
+  if (!matchKey || !state?.signatures) return false;
+  const entry = state.signatures.get(matchKey);
+  if (!entry || entry.count > 1 || (entry.duplicates && entry.duplicates.length > 0)) {
+    return false;
+  }
+  state.signatures.delete(matchKey);
+  const idx = state.recentKeys.indexOf(matchKey);
+  if (idx !== -1) state.recentKeys.splice(idx, 1);
+  return true;
 }
 
 /**

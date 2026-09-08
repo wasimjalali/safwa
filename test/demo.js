@@ -11,9 +11,9 @@
 
 import { CONFIG } from "../src/config.js";
 import { createState } from "../src/state.js";
-import { processComment } from "../src/grouping.js";
+import { processComment, applyLlmOverride } from "../src/grouping.js";
 import { render } from "../src/ui.js";
-import { classifyComment } from "../src/llm-classifier.js";
+import { classifyComment, llmContextFromDecision } from "../src/llm-classifier.js";
 import { STREAMS } from "./mock-comments.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -53,17 +53,21 @@ function buildRow(comment) {
   return row;
 }
 
-function applySemanticBadge(row) {
-  row.classList.remove("safwa-primary");
-  row.classList.add("safwa-dim");
-  let badge = row.querySelector(".safwa-badge.safwa-badge--semantic");
-  if (!badge) {
-    badge = document.createElement("span");
-    badge.className = "safwa-badge safwa-badge--semantic";
-    row.appendChild(badge);
-  }
-  badge.setAttribute("dir", CONFIG.UI_DIRECTION);
-  badge.textContent = CONFIG.LABELS.semanticDuplicate;
+function applyLlmDecision(comment, decision, state) {
+  if (!decision.needsLlmReview || !CONFIG.LLM_ENABLED) return;
+  return classifyComment(
+    comment,
+    decision.recentQuestions,
+    CONFIG,
+    llmContextFromDecision(comment, decision)
+  ).then((result) => {
+    const next = applyLlmOverride(decision, result, state, CONFIG);
+    if (!next || next === decision) return;
+    render(next, CONFIG);
+    for (const extra of next.alsoRender || []) {
+      if (extra?.comment?.el) render(extra, CONFIG);
+    }
+  });
 }
 
 /** Push one comment through regex, then Gemma 4 if the pipeline asks. */
@@ -75,11 +79,7 @@ async function handle(comment, state, panel) {
   comment.el = row;
   const decision = processComment(comment, state, CONFIG);
   render(decision, CONFIG);
-
-  if (decision.needsLlmReview && CONFIG.LLM_ENABLED) {
-    const result = await classifyComment(comment, decision.recentQuestions, CONFIG);
-    if (result?.classification === "duplicate") applySemanticBadge(row);
-  }
+  await applyLlmDecision(comment, decision, state);
   return decision;
 }
 
@@ -99,7 +99,7 @@ const SCENARIOS = [
   {
     key: "nearDuplicate",
     title: "2. Reworded / reordered near-duplicate",
-    expect: "Same words, reordered. Second is marked “possible duplicate” and dimmed, NOT hidden.",
+    expect: "Same words, reordered. Token-set identity: the second is hidden and the count badge shows 2.",
   },
   {
     key: "splitQuestion",
@@ -109,7 +109,7 @@ const SCENARIOS = [
   {
     key: "secondQuestionLater",
     title: "4. A genuine second question, later in the session",
-    expect: "Second is filtered out (hidden) so the teacher reads one question per person. Toggle the extension OFF to reveal it.",
+    expect: "Regex dims it as a second question. After the LLM confirms it is extra, it is hidden (no badge). Toggle OFF to reveal it.",
   },
   {
     key: "twoDifferentHandles",
@@ -119,12 +119,17 @@ const SCENARIOS = [
   {
     key: "distinctSecondInsideWindow",
     title: "4b. A separate second question only 5s later (no continuation cue)",
-    expect: "Treated as a 2nd question and hidden, so the teacher never reads it. (A safety flag can keep in-window ones dimmed instead, if a real split ever gets hidden.)",
+    expect: "Regex dims it (no continuation cue). The LLM decides: extra → hidden; continuation → joined; duplicate → counted.",
   },
   {
     key: "cappedContinuation",
     title: "6. One person dribbles a question across THREE comments",
-    expect: "Question + one continuation are kept and joined. The third piece is over the cap, so it's hidden. One person can't flood the feed as one long question.",
+    expect: "Question + one continuation are kept and joined. The third piece is over the cap: regex dims it, LLM cannot join it, and a confirmed extra is hidden.",
+  },
+  {
+    key: "cueLessSplit",
+    title: "Cue-less split: finished with «؟», rest of the question 8s later",
+    expect: "Regex cannot join it (no ادامه / connector). The LLM should join it as a continuation.",
   },
   {
     key: "greetingThenQuestion",
@@ -154,12 +159,12 @@ const SCENARIOS = [
   {
     key: "semanticPerfumeFasting",
     title: "LLM: same question, completely different words (perfume while fasting)",
-    expect: "Regex cannot match these. Gemma 4 should dim the second and badge it as a semantic duplicate.",
+    expect: "Regex cannot match these. Gemma 4 should hide the second and count it on the first (N بار).",
   },
   {
     key: "semanticFastingTravel",
     title: "LLM: same question, different phrasing (fasting while traveling)",
-    expect: "Regex leaves both primary. Gemma 4 should flag the second as a semantic duplicate.",
+    expect: "Regex leaves both primary. Gemma 4 should hide the second and count it on the first.",
   },
   {
     key: "semanticDistinctTravel",
@@ -169,7 +174,7 @@ const SCENARIOS = [
   {
     key: "semanticWajibFard",
     title: "LLM: same question, واجب vs فرض (zakat on gold)",
-    expect: "Regex leaves both primary. Gemma 4 should flag the second as a duplicate.",
+    expect: "Regex leaves both primary. Gemma 4 should hide the second and count it on the first.",
   },
   {
     key: "trapZakatJewelryCoins",

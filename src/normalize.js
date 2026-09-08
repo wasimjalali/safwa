@@ -88,7 +88,7 @@ export function normalize(text, config) {
   // nothing once stripped. That is a salutation, not a question.
   const isGreetingOnly = key.length > 0 && stripped.length === 0;
 
-  return { matchKey, displayText, isGreetingOnly };
+  return { matchKey, displayText, isGreetingOnly, foldedKey: key };
 }
 
 /**
