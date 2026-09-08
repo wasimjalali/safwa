@@ -97,4 +97,35 @@ render(
 assert.equal(keepClasses.has("safwa-collapsed"), false, "teacher toggle can keep confirmed extras visible");
 assert.equal(keepClasses.has("safwa-dim"), true);
 
+const greetHide = new Set();
+const greetHideNode = {
+  classList: {
+    add: (...names) => names.forEach((name) => greetHide.add(name)),
+    remove: (...names) => names.forEach((name) => greetHide.delete(name)),
+  },
+  appendChild() {},
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  setAttribute() {},
+};
+render({ type: "greeting", hide: true, comment: { el: greetHideNode } }, CONFIG);
+assert.equal(greetHide.has("safwa-collapsed"), true, "expected a confirmed greeting to hide");
+
+const greetShow = new Set();
+const greetShowNode = {
+  classList: {
+    add: (...names) => names.forEach((name) => greetShow.add(name)),
+    remove: (...names) => names.forEach((name) => greetShow.delete(name)),
+  },
+  appendChild() {},
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  setAttribute() {},
+};
+render(
+  { type: "greeting", hide: true, comment: { el: greetShowNode } },
+  { ...CONFIG, HIDE_GREETINGS: false }
+);
+assert.equal(greetShow.has("safwa-collapsed"), false, "teacher toggle can keep greetings visible");
+
 console.log("ui.js human-in-the-loop safety regression: PASS");

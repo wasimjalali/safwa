@@ -335,6 +335,7 @@
           STORAGE_KEYS.hideExtras,
           STORAGE_KEYS.joinContinuations,
           STORAGE_KEYS.llmEnabled,
+          STORAGE_KEYS.hideGreetings,
         ];
         if (!settingKeys.some((key) => key in changes)) return;
         chrome.storage.local.get(null).then((items) => {

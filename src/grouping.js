@@ -27,6 +27,30 @@ import {
   unregisterSignature,
 } from "./dedup.js";
 
+function hasCourtesyHint(foldedKey, hints) {
+  if (!foldedKey || !hints?.length) return false;
+  const padded = ` ${foldedKey} `;
+  return hints.some((hint) => padded.includes(` ${hint} `));
+}
+
+/**
+ * Regex-uncertain courtesy: leftover text after honorific strip, no question
+ * mark or question stem, and a thanks/blessing hint in the folded line.
+ * Never enough to hide on its own — the LLM must confirm.
+ */
+export function maybeCourtesy(displayText, config) {
+  const { matchKey, isGreetingOnly, foldedKey } = normalize(displayText, config);
+  if (isGreetingOnly) return false;
+  if (/[؟?]/.test(displayText || "")) return false;
+  const leftover = (matchKey || "").split(/\s+/).filter(Boolean);
+  if (leftover.length === 0 || leftover.length > (config.COURTESY_MAX_TOKENS ?? 6)) {
+    return false;
+  }
+  const stems = config.QUESTION_STEMS ?? [];
+  if (leftover.some((token) => stems.includes(token))) return false;
+  return hasCourtesyHint(foldedKey || matchKey, config.COURTESY_HINTS);
+}
+
 function lastChar(text) {
   return text.length ? text[text.length - 1] : "";
 }
@@ -216,23 +240,38 @@ function collapseAsSemantic(decision, llmResult, state) {
  * Run one comment through the full pipeline. Mutates `state`. Returns a decision
  * the UI (and tests) act on:
  *
- *   { type: 'greeting',     comment }
+ *   { type: 'greeting',     comment, hide? }
  *   { type: 'continuation', comment, block }
  *   { type: 'duplicate',    comment, target, count, kind }
  *   { type: 'primary',      comment, block }
  *   { type: 'extra',        comment, block, withinWindow, hide? }
  *
  * Regex-uncertain decisions also carry:
- *   needsLlmReview, reviewKind ('room' | 'same_person'), recentQuestions,
+ *   needsLlmReview, reviewKind ('room' | 'same_person' | 'courtesy'), recentQuestions,
  *   previousBlock?, allowContinuation?
  */
-export function processComment(comment, state, config) {
+export function processComment(comment, state, config, opts = {}) {
   const { matchKey, displayText, isGreetingOnly } = normalize(comment.displayText, config);
   comment.matchKey = matchKey;
   comment.displayText = displayText;
 
   if (isGreetingOnly) {
-    return { type: "greeting", comment };
+    return { type: "greeting", comment, hide: config.HIDE_GREETINGS !== false };
+  }
+
+  // Classify courtesy even when the teacher wants greetings shown — hide
+  // is the only thing the toggle controls. A leftover blessing must never
+  // take the one-question slot just because hiding is off.
+  if (!opts.skipCourtesy && maybeCourtesy(displayText, config)) {
+    return {
+      type: "greeting",
+      comment,
+      hide: false,
+      needsLlmReview: config.LLM_ENABLED !== false,
+      reviewKind: "courtesy",
+      recentQuestions: collectRecentQuestions(state, config.LLM_MAX_CONTEXT_COMMENTS),
+      allowContinuation: false,
+    };
   }
 
   const key = identityKey(comment);
@@ -334,10 +373,52 @@ export function processComment(comment, state, config) {
  * @param {object} state
  * @param {object} config
  */
+function greetingDecision(comment, config) {
+  return { type: "greeting", comment, hide: config.HIDE_GREETINGS !== false };
+}
+
+function undoAsGreeting(decision, state, config) {
+  const record = getOrCreateHandle(state, identityKey(decision.comment));
+  if (decision.comment.matchKey) {
+    unregisterSignature(decision.comment.matchKey, state);
+  }
+  if (decision.type === "primary") {
+    if (record.open === decision.block) record.open = null;
+    record.hasPrimaryQuestion = false;
+  }
+  if (decision.type === "extra") {
+    if (decision.block) {
+      decision.block.hideConfirmed = true;
+      decision.block.absorbed = true;
+    }
+    setOpen(record, decision.previousBlock ?? record.lastBlock ?? null);
+  }
+  return greetingDecision(decision.comment, config);
+}
+
 export function applyLlmOverride(decision, llmResult, state, config) {
   if (!decision || !llmResult || !llmResult.classification) return decision;
 
   const classification = llmResult.classification;
+
+  if (decision.reviewKind === "courtesy") {
+    if (classification === "greeting") return greetingDecision(decision.comment, config);
+    const record = getOrCreateHandle(state, identityKey(decision.comment));
+    // A later real question already took the slot. Promoting this leftover
+    // would mark it extra and risk hiding a blessing. Leave the regex look.
+    if (record.hasPrimaryQuestion) return decision;
+    return processComment(decision.comment, state, config, { skipCourtesy: true });
+  }
+
+  // Room / same-person "greeting" is only safe on leftover courtesy. A real
+  // question the model misread as thanks must stay visible (never hide a maybe).
+  if (classification === "greeting") {
+    if (maybeCourtesy(decision.comment.displayText, config)) {
+      return undoAsGreeting(decision, state, config);
+    }
+    return decision;
+  }
+
   const record = getOrCreateHandle(state, identityKey(decision.comment));
   const previousBlock = decision.previousBlock?.absorbed
     ? record.lastBlock

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   popup.html - the bar that opens when the Ṣafwa icon is clicked.
-  Master on/off, then teacher settings with Dari help on each row.
+  Two rooms: live (on/off + reset) and settings (the five teacher toggles).
 -->
 <html lang="fa" dir="rtl">
   <head>
@@ -16,15 +16,35 @@
         <h1 class="brand__fa">صفوة</h1>
         <p id="tagline" class="brand__tagline"></p>
       </div>
-      <button id="toggle" class="switch" role="switch" aria-checked="true">
-        <span class="switch__knob"></span>
-      </button>
     </header>
-    <p id="hint" class="hint"></p>
 
-    <section class="settings" aria-labelledby="settings-heading">
-      <h2 id="settings-heading" class="settings__heading"></h2>
-      <div id="settings-list"></div>
+    <div class="seg" role="tablist">
+      <button
+        type="button"
+        id="tab-live"
+        class="seg__tab"
+        role="tab"
+        aria-selected="true"
+        aria-controls="room-live"
+      ></button>
+      <button
+        type="button"
+        id="tab-settings"
+        class="seg__tab"
+        role="tab"
+        aria-selected="false"
+        aria-controls="room-settings"
+      ></button>
+    </div>
+
+    <section id="room-live" class="room" role="tabpanel" aria-labelledby="tab-live">
+      <div class="master-row">
+        <p id="master-word" class="master-row__v"></p>
+        <button id="toggle" class="switch" role="switch" aria-checked="true">
+          <span class="switch__knob"></span>
+        </button>
+      </div>
+      <p id="hint" class="hint"></p>
 
       <div class="reset-row">
         <button type="button" id="reset" class="reset"></button>
@@ -38,6 +58,16 @@
       </div>
       <div id="explain-reset" class="explain" hidden></div>
       <p id="reset-status" class="reset-status" hidden></p>
+    </section>
+
+    <section
+      id="room-settings"
+      class="room"
+      role="tabpanel"
+      aria-labelledby="tab-settings"
+      hidden
+    >
+      <div id="settings-list"></div>
     </section>
 
     <footer class="footer">

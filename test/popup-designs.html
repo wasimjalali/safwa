@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ṣafwa — popup</title>
+    <link rel="icon" type="image/png" href="../icons/icon32.png" />
+    <style>
+      :root {
+        --canvas: #f8f8f8;
+        --ink: #171717;
+        --ink-muted: #5c5c5c;
+        --border: #ebebeb;
+        --shadow-card: 0 1px 0 rgb(23 23 23 / 0.03), 0 18px 40px -24px rgb(23 23 23 / 0.18);
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: system-ui, sans-serif;
+      }
+
+      .page {
+        padding: 40px 24px 80px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 550;
+        letter-spacing: -0.03em;
+      }
+
+      p {
+        margin: 8px 0 24px;
+        max-width: 46ch;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--ink-muted);
+      }
+
+      .frame {
+        width: 320px;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-card);
+        background: #fff;
+      }
+
+      iframe {
+        display: block;
+        width: 320px;
+        height: 360px;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <h1>Ṣafwa popup</h1>
+      <p>The shipped two-room popup. Click فلتر and تنظیمات. Same file the extension uses.</p>
+      <div class="frame">
+        <iframe
+          id="pop"
+          src="../popup/popup.html"
+          title="Ṣafwa popup"
+        ></iframe>
+      </div>
+    </main>
+    <script>
+      const frame = document.getElementById("pop");
+      function fit() {
+        const doc = frame.contentDocument;
+        if (!doc?.documentElement) return;
+        frame.style.height = `${doc.documentElement.scrollHeight}px`;
+      }
+      frame.addEventListener("load", () => {
+        fit();
+        const doc = frame.contentDocument;
+        if (!doc) return;
+        new MutationObserver(fit).observe(doc.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+        });
+        doc.addEventListener("click", () => requestAnimationFrame(fit));
+      });
+    </script>
+  </body>
+</html>

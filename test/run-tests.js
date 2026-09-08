@@ -262,6 +262,80 @@ test("a greeting-only comment does not consume the person's one question slot", 
   assert.equal(decisions[1].type, "primary");
 });
 
+test("regex greetings hide by default and stay visible when the teacher turns the toggle off", () => {
+  const hidden = processComment(
+    comment("کریم", "youtube", "سلام علیکم", 0),
+    createState(),
+    CONFIG
+  );
+  assert.equal(hidden.type, "greeting");
+  assert.equal(hidden.hide, true);
+  assert.equal(hidden.needsLlmReview, undefined);
+
+  const shown = processComment(
+    comment("کریم", "youtube", "سلام علیکم", 0),
+    createState(),
+    { ...CONFIG, HIDE_GREETINGS: false }
+  );
+  assert.equal(shown.type, "greeting");
+  assert.equal(shown.hide, false);
+});
+
+test("blessing-only comments fold to a greeting", () => {
+  assert.equal(normalize("جزاک الله", CONFIG).isGreetingOnly, true);
+  assert.equal(normalize("آمین", CONFIG).isGreetingOnly, true);
+  assert.equal(normalize("خداحافظ", CONFIG).isGreetingOnly, true);
+});
+
+test("a courtesy variant waits for the LLM and does not hide or take the question slot", () => {
+  const state = createState();
+  const first = processComment(
+    comment("کریم", "youtube", "جزاکم الله تعالی", 0),
+    state,
+    CONFIG
+  );
+  assert.equal(first.type, "greeting");
+  assert.equal(first.hide, false);
+  assert.equal(first.needsLlmReview, true);
+  assert.equal(first.reviewKind, "courtesy");
+
+  const later = processComment(
+    comment("کریم", "youtube", "حکم روزه در سفر چیست؟", 120000),
+    state,
+    CONFIG
+  );
+  assert.equal(later.type, "primary");
+});
+
+test("hiding greetings off still classifies courtesy and does not take the slot", () => {
+  const config = { ...CONFIG, HIDE_GREETINGS: false };
+  const state = createState();
+  const first = processComment(
+    comment("کریم", "youtube", "جزاکم الله تعالی", 0),
+    state,
+    config
+  );
+  assert.equal(first.type, "greeting");
+  assert.equal(first.hide, false);
+  assert.equal(first.reviewKind, "courtesy");
+  const later = processComment(
+    comment("کریم", "youtube", "حکم روزه در سفر چیست؟", 120000),
+    state,
+    config
+  );
+  assert.equal(later.type, "primary");
+});
+
+test("a real short question is not treated as a courtesy maybe", () => {
+  const decision = processComment(
+    comment("علی", "youtube", "طلا زکات دارد", 0),
+    createState(),
+    CONFIG
+  );
+  assert.equal(decision.type, "primary");
+  assert.notEqual(decision.reviewKind, "courtesy");
+});
+
 test("double-send: identical re-send inside the window collapses as a duplicate, never merges", () => {
   const { decisions } = runStream(STREAMS.doubleSend);
   assert.equal(decisions[0].type, "primary");
@@ -458,6 +532,7 @@ test("readStoredSettings defaults every flag on when storage is empty", () => {
   assert.equal(settings.hideExtras, true);
   assert.equal(settings.joinContinuations, true);
   assert.equal(settings.llmEnabled, true);
+  assert.equal(settings.hideGreetings, true);
 });
 
 test("readStoredSettings honors an explicit false", () => {
@@ -477,6 +552,13 @@ test("applyStoredSettings writes teacher flags onto a runtime config", () => {
   assert.equal(config.JOIN_CONTINUATIONS, false);
   assert.equal(config.AUTO_COLLAPSE_EXACT_DUPLICATES, true);
   assert.equal(config.HIDE_CONFIRMED_EXTRAS, true);
+  assert.equal(config.HIDE_GREETINGS, true);
+});
+
+test("applyStoredSettings honors hiding greetings off", () => {
+  const config = { ...CONFIG };
+  applyStoredSettings(config, readStoredSettings({ safwaHideGreetings: false }));
+  assert.equal(config.HIDE_GREETINGS, false);
 });
 
 test("JOIN_CONTINUATIONS false: LLM continuation does not merge", () => {
@@ -639,6 +721,97 @@ test("later paraphrase still has the earlier question in the 30-deep context", (
   assert.ok(decisions[1].recentQuestions[0].matchKey);
 });
 
+test("LLM greeting on a courtesy maybe hides and still leaves the next ask as primary", () => {
+  const state = createState();
+  const courtesy = processComment(
+    comment("کریم", "youtube", "جزاکم الله تعالی", 0),
+    state,
+    CONFIG
+  );
+  const hidden = applyLlmOverride(courtesy, { classification: "greeting" }, state, CONFIG);
+  assert.equal(hidden.type, "greeting");
+  assert.equal(hidden.hide, true);
+  const later = processComment(
+    comment("کریم", "youtube", "حکم روزه در سفر چیست؟", 120000),
+    state,
+    CONFIG
+  );
+  assert.equal(later.type, "primary");
+});
+
+test("LLM primary on a courtesy maybe promotes it to a real question", () => {
+  const state = createState();
+  const courtesy = processComment(
+    comment("کریم", "youtube", "جزاکم الله تعالی", 0),
+    state,
+    CONFIG
+  );
+  const next = applyLlmOverride(courtesy, { classification: "primary" }, state, CONFIG);
+  assert.equal(next.type, "primary");
+  const later = processComment(
+    comment("کریم", "youtube", "حکم روزه در سفر چیست؟", 120000),
+    state,
+    CONFIG
+  );
+  assert.equal(later.type, "extra");
+});
+
+test("LLM greeting on a real question is ignored", () => {
+  const state = createState();
+  const first = processComment(
+    comment("رضا", "youtube", "حکم قهوه چیست؟", 0),
+    state,
+    CONFIG
+  );
+  assert.equal(first.type, "primary");
+  const kept = applyLlmOverride(first, { classification: "greeting" }, state, CONFIG);
+  assert.equal(kept.type, "primary");
+  const later = processComment(
+    comment("رضا", "youtube", "حکم روزه در سفر چیست؟", 120000),
+    state,
+    CONFIG
+  );
+  assert.equal(later.type, "extra");
+});
+
+test("LLM greeting on a skipCourtesy leftover frees the person's question slot", () => {
+  const state = createState();
+  const first = processComment(
+    comment("رضا", "youtube", "جزاکم الله تعالی", 0),
+    state,
+    CONFIG,
+    { skipCourtesy: true }
+  );
+  assert.equal(first.type, "primary");
+  const undone = applyLlmOverride(first, { classification: "greeting" }, state, CONFIG);
+  assert.equal(undone.type, "greeting");
+  assert.equal(undone.hide, true);
+  const later = processComment(
+    comment("رضا", "youtube", "حکم روزه در سفر چیست؟", 120000),
+    state,
+    CONFIG
+  );
+  assert.equal(later.type, "primary");
+});
+
+test("stale LLM primary on courtesy does not become extra after a later ask", () => {
+  const state = createState();
+  const courtesy = processComment(
+    comment("کریم", "youtube", "جزاکم الله تعالی", 0),
+    state,
+    CONFIG
+  );
+  const later = processComment(
+    comment("کریم", "youtube", "حکم روزه در سفر چیست؟", 120000),
+    state,
+    CONFIG
+  );
+  assert.equal(later.type, "primary");
+  const stale = applyLlmOverride(courtesy, { classification: "primary" }, state, CONFIG);
+  assert.equal(stale.type, "greeting");
+  assert.equal(stale.hide, false);
+});
+
 // =====================================================================
 group("parseLlmResponse");
 
@@ -648,10 +821,11 @@ test("accepts duplicate with match index", () => {
   assert.equal(parsed.match, 2);
 });
 
-test("accepts continuation / extra / primary", () => {
+test("accepts continuation / extra / primary / greeting", () => {
   assert.equal(parseLlmResponse('{"classification":"continuation"}').classification, "continuation");
   assert.equal(parseLlmResponse('{"classification":"extra"}').classification, "extra");
   assert.equal(parseLlmResponse('{"classification":"primary"}').classification, "primary");
+  assert.equal(parseLlmResponse('{"classification":"greeting"}').classification, "greeting");
 });
 
 test("rejects garbage", () => {

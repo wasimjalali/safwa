@@ -70,11 +70,30 @@ export const CONFIG = {
   // and the un-stripped greeting kept the copies from matching.
   HONORIFICS_TO_STRIP: [
     "السلام علیکم", "سلام علیکم", "اسلام علیکم", "وعلیکم السلام", "علیکم السلام",
-    "ورحمت الله", "ورحمه الله", "وبرکاته", "صبح بخیر",
+    "ورحمت الله", "ورحمه الله", "وبرکاته", "صبح بخیر", "شب بخیر",
+    "جزاکم الله خیرا", "جزاکم الله", "جزاک الله",
+    "بارک الله فیکم", "بارک الله",
+    "الحمد لله", "الحمدلله", "ماشاء الله", "ماشاالله",
+    "امین یا رب", "امین",
+    "فی امان الله", "خسته نباشید", "زنده باشید", "موفق باشید",
+    "خداحافظ", "خدانگهدار", "درود",
+    "ممنون", "تشکر", "مرسی", "سپاس", "یا حق",
     "سلام", "استاد", "معلم", "شیخ", "مولوی", "مولانا", "قاری", "حافظ",
     "علامه", "حاجی", "حاج", "جناب", "آقای", "آقا", "خانم", "محترم",
     "برادر", "خواهر", "دوست", "عزیز", "جان", "صاحب", "مفتی",
   ],
+
+  // A leftover after honorific strip that still looks like thanks/blessing, not
+  // a question. Used only to ask the LLM; never enough to hide on its own.
+  COURTESY_HINTS: [
+    "جزاکم", "جزاک", "بارک", "الحمد", "الحمدلله", "ماشاء", "ماشاالله",
+    "امین", "درود", "خداحافظ", "خدانگهدار", "ممنون", "تشکر", "مرسی", "سپاس",
+  ],
+  QUESTION_STEMS: [
+    "چیست", "چرا", "چطور", "چگونه", "آیا", "حکم", "چی", "کی", "کجا",
+    "چند", "کدام", "میشود", "میشه", "سوال",
+  ],
+  COURTESY_MAX_TOKENS: 6,
 
   // --- Duplicate detection (dedup.js, spec Section 9) ---
 
@@ -96,6 +115,7 @@ export const CONFIG = {
   // Teacher settings (popup). Defaults are the live-show recommendations.
   JOIN_CONTINUATIONS: true,
   HIDE_CONFIRMED_EXTRAS: true,
+  HIDE_GREETINGS: true,
 
   // Must stay false in v1: a flagged second question might be a continuation
   // the detector missed, so it remains visible, dimmed and badged.
@@ -149,6 +169,7 @@ export const CONFIG = {
     popupHintOn: "سوال‌های تکراری جمع می‌شوند و سوال دوم پنهان می‌شود",
     popupHintOff: "ستون نظرات بدون هیچ تغییری نمایش داده می‌شود",
     popupFooter: "روی StreamYard کار می‌کند",       // "works on StreamYard"
+    popupLiveTab: "فلتر",
 
     settingsHeading: "تنظیمات",
     settingHelp: "توضیح",
@@ -179,6 +200,14 @@ export const CONFIG = {
     settingJoin: "وصل کردن سوال دو تکه",
     settingJoinOn: "اگر یک سوال در دو پیام پشت‌سرهم بیاید، به هم وصل می‌شوند و هر دو دیده می‌شوند.",
     settingJoinOff: "هر پیام جدا می‌ماند، حتی اگر ادامهٔ همان حرف باشد.",
+
+    settingHideGreetings: "پنهان کردن سلام و دعا",
+    settingHideGreetingsOn: [
+      "سلام، تشکر و دعا که سوال نیستند از ستون برداشته می‌شوند.",
+    ],
+    settingHideGreetingsOff: [
+      "سلام و دعا هم در ستون می‌مانند.",
+    ],
 
     settingLlm: "فهمیدن معنی یکسان",
     settingLlmOn: [
@@ -214,6 +243,7 @@ export const STORAGE_KEYS = {
   hideExtras: "safwaHideExtras",
   joinContinuations: "safwaJoinContinuations",
   llmEnabled: "safwaLlmEnabled",
+  hideGreetings: "safwaHideGreetings",
   resetAt: "safwaResetAt",
 };
 
@@ -225,6 +255,7 @@ export function readStoredSettings(items = {}) {
     hideExtras: items[STORAGE_KEYS.hideExtras] !== false,
     joinContinuations: items[STORAGE_KEYS.joinContinuations] !== false,
     llmEnabled: items[STORAGE_KEYS.llmEnabled] !== false,
+    hideGreetings: items[STORAGE_KEYS.hideGreetings] !== false,
   };
 }
 
@@ -234,6 +265,7 @@ export function applyStoredSettings(config, settings) {
   config.HIDE_CONFIRMED_EXTRAS = settings.hideExtras;
   config.JOIN_CONTINUATIONS = settings.joinContinuations;
   config.LLM_ENABLED = settings.llmEnabled;
+  config.HIDE_GREETINGS = settings.hideGreetings;
 }
 
 /*

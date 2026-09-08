@@ -94,8 +94,11 @@ export function render(decision, config) {
 
   switch (decision.type) {
     case "greeting":
-      // A pure greeting/honorific. Not a question: leave the row exactly as
-      // StreamYard drew it. No badge, no dim, no hide.
+      // Regex-certain greetings hide when the teacher toggle is on. A courtesy
+      // maybe stays visible until the LLM confirms (never hide a maybe).
+      if (decision.hide && config.HIDE_GREETINGS !== false) {
+        node.classList.add("safwa-collapsed");
+      }
       break;
 
     case "primary":

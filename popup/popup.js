@@ -9,15 +9,21 @@ const L = CONFIG.LABELS;
 const HELP_ICON = `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.6c0-1.15.95-2.05 2.1-2.05S12.2 6.45 12.2 7.6c0 .85-.5 1.4-1.25 1.8-.7.35-1.05.7-1.05 1.45" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="14.15" r="0.85" fill="currentColor"/></svg>`;
 
 const toggle = document.getElementById("toggle");
+const masterWord = document.getElementById("master-word");
 const hint = document.getElementById("hint");
 const list = document.getElementById("settings-list");
 const resetBtn = document.getElementById("reset");
 const resetHelp = document.querySelector('[data-help="reset"]');
 const resetExplain = document.getElementById("explain-reset");
 const resetStatus = document.getElementById("reset-status");
+const tabLive = document.getElementById("tab-live");
+const tabSettings = document.getElementById("tab-settings");
+const roomLive = document.getElementById("room-live");
+const roomSettings = document.getElementById("room-settings");
 
 document.getElementById("tagline").textContent = L.popupTagline;
-document.getElementById("settings-heading").textContent = L.settingsHeading;
+tabLive.textContent = L.popupLiveTab;
+tabSettings.textContent = L.settingsHeading;
 document.getElementById("footer-label").textContent = L.popupFooter;
 document.getElementById("version").textContent = `v${
   globalThis.chrome?.runtime?.getManifest?.().version ?? "?"
@@ -50,6 +56,13 @@ const SETTING_ROWS = [
     off: L.settingJoinOff,
   },
   {
+    storageKey: STORAGE_KEYS.hideGreetings,
+    field: "hideGreetings",
+    label: L.settingHideGreetings,
+    on: L.settingHideGreetingsOn,
+    off: L.settingHideGreetingsOff,
+  },
+  {
     storageKey: STORAGE_KEYS.llmEnabled,
     field: "llmEnabled",
     label: L.settingLlm,
@@ -79,9 +92,19 @@ function fillExplain(el, k1, t1, k2, t2) {
   }
 }
 
+function showRoom(room) {
+  const live = room === "live";
+  tabLive.setAttribute("aria-selected", String(live));
+  tabSettings.setAttribute("aria-selected", String(!live));
+  roomLive.hidden = !live;
+  roomSettings.hidden = live;
+  closeExplains(null);
+}
+
 function paintMaster(enabled) {
   toggle.setAttribute("aria-checked", String(enabled));
   toggle.setAttribute("aria-label", enabled ? L.popupStatusOn : L.popupStatusOff);
+  masterWord.textContent = enabled ? L.popupStatusOn : L.popupStatusOff;
   const text = enabled ? L.popupHintOn : L.popupHintOff;
   if (hint.textContent === text) return;
   if (hint.textContent) {
@@ -174,6 +197,8 @@ const rows = SETTING_ROWS.map(buildRow);
 for (const row of rows) list.appendChild(row.wrap);
 
 resetHelp.addEventListener("click", () => toggleExplain(resetHelp));
+tabLive.addEventListener("click", () => showRoom("live"));
+tabSettings.addEventListener("click", () => showRoom("settings"));
 
 const hasStorage = typeof chrome !== "undefined" && !!chrome.storage?.local;
 let userToggled = false;

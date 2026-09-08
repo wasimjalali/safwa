@@ -4,9 +4,10 @@
  * Browser-only: uses fetch(). Called by content.js after the regex pipeline
  * has already rendered, so the live feed never waits. Two review kinds:
  *
- *   room         — first question from this handle: duplicate vs primary
+ *   room         — first question from this handle: duplicate vs primary vs greeting
  *   same_person  — cue-less extra / fuzzy after they already asked:
- *                  continuation vs duplicate vs extra
+ *                  continuation vs duplicate vs extra vs greeting
+ *   courtesy     — leftover blessing/thanks: greeting vs primary
  *
  * Regex-certain cases never get here. If the LLM is unreachable, times out, or
  * returns garbage, the caller keeps the regex decision (never hide on a maybe).
@@ -23,14 +24,19 @@ Reply with only one JSON object and no other text:
 {"classification":"duplicate","match":1}
 or
 {"classification":"primary"}
+or
+{"classification":"greeting"}
 
 match is the 1-based index of the recent comment that is the same ask. Comments are numbered newest first: [1] is the most recent.
 
 duplicate: the teacher would give one answer to both. Ignore wording, dialect, greetings and Arabic vs Persian letters (ي/ی, ك/ک). Treat synonyms as the same ask (واجب/فرض/لازم, عطر/ادکلن, موسیقی/آهنگ, روزه/روژه).
 
+greeting: only a greeting, thanks, blessing, or farewell — not a question the teacher would answer.
+
 primary: a different ask. A shared setting (سفر, روزه) or a shared topic word (زکات, نماز) is not enough. Different acts of worship, different objects (زیورآلات vs سکه, جوراب vs کفش), different times of day or different cities are primary. A follow-up that changes who it applies to ("برای خانم‌ها چطور؟") is primary.
 
-If both readings are reasonable, choose primary.
+If greeting and primary are both reasonable, choose primary.
+If both other readings are reasonable, choose primary.
 
 Examples:
 Recent:
@@ -56,6 +62,35 @@ New: آیا سکه‌های طلا زکات دارند؟
 Recent:
 [1] آیا نماز خواندن در حال نشسته جایز است؟
 New: برای خانم‌ها چطور؟
+{"classification":"primary"}
+
+Recent:
+[1] حکم روزه در سفر چیست؟
+New: جزاکم الله تعالی
+{"classification":"greeting"}`;
+
+const COURTESY_SYSTEM_PROMPT = `You decide if a Dari or Persian live-chat comment is only courtesy, or a real question.
+
+Reply with only one JSON object and no other text:
+{"classification":"greeting"}
+{"classification":"primary"}
+
+greeting: only a greeting, thanks, blessing, dua, or farewell. The teacher would not answer it.
+primary: anything the teacher might need to answer.
+
+If both readings are reasonable, choose primary.
+
+Examples:
+New: جزاکم الله تعالی
+{"classification":"greeting"}
+
+New: آمین یا رب العالمین
+{"classification":"greeting"}
+
+New: حکم روزه در سفر چیست؟
+{"classification":"primary"}
+
+New: طلا زکات دارد
 {"classification":"primary"}`;
 
 const SAME_PERSON_SYSTEM_PROMPT = `You classify a follow-up comment from someone who already asked in a live Dari/Persian Islamic Q&A.
@@ -66,13 +101,16 @@ Reply with only one JSON object and no other text:
 {"classification":"continuation"}
 {"classification":"duplicate","match":1}
 {"classification":"extra"}
+{"classification":"greeting"}
 
 continuation: more of THIS PERSON's previous question — a split sentence, a missing clause, "I mean…", or the rest of the same ask. Not a new question.
 duplicate: the same underlying question as one numbered recent comment (their own restated in new words, or someone else's). match is that 1-based index.
 extra: a genuinely different second question from this person.
+greeting: only a greeting, thanks, blessing, or farewell — not a question.
 
 If continuation and extra are both reasonable, choose continuation.
 If duplicate and extra are both reasonable, choose duplicate.
+If greeting and extra are both reasonable, choose extra.
 If you are told continuation is not allowed, never choose continuation.
 
 Ignore wording, dialect, greetings and Arabic vs Persian letters (ي/ی, ك/ک).
@@ -98,7 +136,12 @@ New: طلا زکات دارد یا نه؟
 Previous: آیا نماز خواندن در حال نشسته جایز است؟
 Gap: 90s
 New: حکم روزه گرفتن در سفر چیست؟
-{"classification":"extra"}`;
+{"classification":"extra"}
+
+Previous: حکم روزه در سفر چیست؟
+Gap: 20s
+New: جزاکم الله تعالی
+{"classification":"greeting"}`;
 
 function numberedRecent(recentQuestions) {
   if (!recentQuestions || recentQuestions.length === 0) return "(none)";
@@ -167,7 +210,13 @@ export function parseLlmResponse(raw) {
   try {
     const obj = JSON.parse(text.slice(start, end + 1));
     const cls = (obj.classification || "").toLowerCase().trim();
-    if (cls !== "duplicate" && cls !== "primary" && cls !== "continuation" && cls !== "extra") {
+    if (
+      cls !== "duplicate" &&
+      cls !== "primary" &&
+      cls !== "continuation" &&
+      cls !== "extra" &&
+      cls !== "greeting"
+    ) {
       return null;
     }
     const result = { classification: cls };
@@ -195,12 +244,24 @@ export function parseLlmResponse(raw) {
 export async function classifyComment(newComment, recentQuestions, config, context = {}) {
   if (!config.LLM_ENABLED || !config.LLM_ENDPOINT) return null;
 
-  const reviewKind = context.reviewKind === "same_person" ? "same_person" : "room";
-  const system = reviewKind === "same_person" ? SAME_PERSON_SYSTEM_PROMPT : ROOM_SYSTEM_PROMPT;
+  const reviewKind =
+    context.reviewKind === "same_person"
+      ? "same_person"
+      : context.reviewKind === "courtesy"
+        ? "courtesy"
+        : "room";
+  const system =
+    reviewKind === "same_person"
+      ? SAME_PERSON_SYSTEM_PROMPT
+      : reviewKind === "courtesy"
+        ? COURTESY_SYSTEM_PROMPT
+        : ROOM_SYSTEM_PROMPT;
   const user =
     reviewKind === "same_person"
       ? buildSamePersonPrompt(newComment, recentQuestions, context)
-      : buildRoomPrompt(newComment, recentQuestions);
+      : reviewKind === "courtesy"
+        ? `New comment: "${newComment.displayText}"\n\nClassify the new comment.`
+        : buildRoomPrompt(newComment, recentQuestions);
 
   const body = JSON.stringify({
     model: config.LLM_MODEL,
@@ -255,7 +316,12 @@ export async function classifyComment(newComment, recentQuestions, config, conte
 export function llmContextFromDecision(comment, decision) {
   const previous = decision.previousBlock;
   return {
-    reviewKind: decision.reviewKind === "same_person" ? "same_person" : "room",
+    reviewKind:
+      decision.reviewKind === "same_person"
+        ? "same_person"
+        : decision.reviewKind === "courtesy"
+          ? "courtesy"
+          : "room",
     previousText: previous?.displayText ?? "",
     gapMs:
       previous && typeof comment.timestamp === "number" && typeof previous.lastTimestamp === "number"
