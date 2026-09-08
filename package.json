@@ -1,11 +1,11 @@
 {
   "name": "safwa",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Ṣafwa (صفوة) - Chrome MV3 live Q&A filter for Dari/Persian StreamYard comments. Regex plus Gemma 4: collapse duplicates, join split questions, one question per person.",
   "type": "module",
   "scripts": {
-    "test": "node test/run-tests.js",
+    "test": "node test/run-tests.js && node test/content-retry-test.js && node test/content-virtualization-test.js && node test/content-virtual-anchor-test.js && node test/content-llm-stale-test.js && node test/ui-safety-test.js",
     "replay": "node test/replay-analysis.js",
     "demo": "python3 -m http.server 8000"
   },

@@ -18,7 +18,7 @@ You keep using StreamYard exactly as before. The extension only changes how comm
 
 StreamYard has no public API, no comment webhooks, and no SDK. The only way to read the comment feed is to read the page's DOM in the browser. Everything here is built on that single fact.
 
-Because we read the page instead of an API, a StreamYard layout change can break comment reading. To contain that, **every StreamYard-specific selector lives in exactly two files: `src/config.js` and `src/dom.js`.** Nothing else in the codebase knows what StreamYard's HTML looks like. If selectors stop matching, the extension does nothing visible and logs a clear console warning. It never corrupts the feed.
+Because we read the page instead of an API, a StreamYard layout change can break comment reading. To contain that, **every runtime StreamYard-specific selector lives in exactly two files: `src/config.js` and `src/dom.js`.** Sanitized evidence from the confirmed live DOM is retained in `captures/streamyard-live-dom.json`, but runtime code never imports it. If selectors stop matching, the extension does nothing visible and logs a clear console warning. It never corrupts the feed.
 
 ## Install (load unpacked)
 
@@ -52,6 +52,7 @@ Five real sessions (425 comments over ~5 hours) are committed at `test/fixtures/
 
 ```
 manifest.json          MV3 manifest, content script scoped to streamyard.com
+captures/              sanitized, inert live-DOM evidence for maintenance
 src/
   content.js           entry point: bootstraps the core, runs the MutationObserver + pipeline
   dom.js               ALL StreamYard selectors + comment extraction (the only fragile layer)
@@ -171,7 +172,7 @@ New comment -> regex pipeline (instant)
 
 - The regex pipeline still runs first and handles all high-confidence cases instantly.
 - Only exact duplicates auto-collapse. LLM-flagged semantic dups are dimmed + badged, never hidden.
-- `npm test` is 44/44. LLM escalation flags are covered.
+- `npm test` is 44/44 for the matching core, plus late-panel retry, virtualized-row, duplicate-anchor, stale-LLM and visible-extra safety regressions. LLM escalation flags are covered.
 - `LLM_ENABLED: false` reverts to pure v1 behavior.
 
 ### Self-hosting (data sovereignty)
@@ -183,9 +184,9 @@ The live LLM is **Gemma 4 26B** on Cloudflare Workers AI (`@cf/google/gemma-4-26
 This project is built in phases (spec Section 14). Current status:
 
 - [x] Phase 1: Skeleton (manifest + content script logging on streamyard.com)
-- [x] Phase 2: DOM discovery layer built with research-based selectors, hardened at boot (attach only to a container that holds comment rows)
+- [x] Phase 2: DOM selectors confirmed against a live StreamYard comment feed, hardened at boot (attach only to a container that holds comment rows)
 - [x] Phase 3: Matching core, proven on mocks (`npm test`: 44/44, acceptance criteria 1-5)
-- [x] Phase 4: Core wired to the live DOM (observer + pipeline + fail-safe; shipped enabled for v1.0.0)
+- [x] Phase 4: Core wired to the live DOM (observer, pipeline, fail-safe, late-panel retry and virtualized-row handling)
 - [x] Phase 5: UI layer (in-place annotation with confidence tiers)
 - [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
 - [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. Dari eval 68/68.
@@ -196,11 +197,11 @@ This project is built in phases (spec Section 14). Current status:
 
 ### To go fully live
 
-The build is complete and the logic is proven. The extension ships **enabled**: `SELECTORS.CONFIRMED` is `true`, and boot-time discovery only attaches to a container that actually holds comment rows. If StreamYard's live layout differs from the researched selectors, the extension logs one clear `[Ṣafwa]` warning and leaves the native feed untouched — it can never corrupt it.
+The build is complete and the logic is proven. The extension ships **enabled**: `SELECTORS.CONFIRMED` is `true`, and boot-time discovery only attaches to a container that actually holds comment rows. The selectors were confirmed against a live studio. If StreamYard's layout changes, the extension logs one clear `[Ṣafwa]` warning, keeps checking safely and leaves the native feed untouched.
 
-The one operator step that remains is confirmation, not activation:
+Live verification for each release:
 
-1. On a live studio, open DevTools and check the Console for `[Ṣafwa]`. If you see `comments container not found` or `could not read handle or text`, paste the real markup into `SELECTORS` in `src/config.js` (spec Section 12). Until then the feed simply runs native.
+1. Load the release build, open a live studio and confirm the Console reports `[Ṣafwa] comments container found`.
 2. Tune thresholds against a real or recorded session using the table above.
 
 ## License

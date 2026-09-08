@@ -17,7 +17,7 @@ A Manifest V3 Chrome extension that cleans a StreamYard live Q&A comment feed in
 
 1. **There is no StreamYard API.** Comments are read from the page DOM via a content script and a MutationObserver. Do not add code that assumes an API, webhook, or SDK exists.
 
-2. **Selectors live in two files only.** Every StreamYard-specific selector belongs in `src/config.js` (the selector constants) and `src/dom.js` (extraction logic). No selector, class name, or DOM-shape assumption may appear anywhere else. This is the layer most likely to break, so it is isolated on purpose.
+2. **Selectors live in two files only.** Every runtime StreamYard-specific selector belongs in `src/config.js` (the selector constants) and `src/dom.js` (extraction logic). No selector, class name, or DOM-shape assumption may appear anywhere else. Sanitized, inert live-capture evidence may be stored under `captures/`, but runtime code must never import it. This is the layer most likely to break, so it is isolated on purpose.
 
 3. **Pipeline order is fixed:** continuation check → duplicate check → one-question-per-person. Never reorder. Continuation-first is what stops a split question from being wrongly flagged or wrongly deduplicated. One narrow exception, on purpose: a re-send with a matchKey IDENTICAL to the handle's open block collapses as a duplicate before the continuation check, because a verbatim repeat can never be a genuine split (see the double-send guard in `grouping.js`).
 
@@ -59,9 +59,9 @@ Key rules for v2:
 ## Build phases (spec Section 14)
 
 1. Skeleton (done)
-2. DOM discovery (needs a live studio; placeholders until confirmed)
+2. DOM discovery (done, selectors confirmed against a live studio)
 3. Matching core, tested on mocks (done, 44/44)
-4. Wire core to live DOM (done)
+4. Wire core to live DOM (done, late-panel retry, virtualized-row, duplicate-anchor, stale-LLM and visible-extra safety regressions)
 5. UI layer (done)
 6. Tuning pass (ready, needs a live session)
 7. LLM semantic layer / combo architecture (done, 44/44 tests, Gemma 4 eval 68/68)

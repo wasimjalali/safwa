@@ -19,14 +19,15 @@
   // Process detected comments in small debounced batches so a burst of comments
   // can't thrash layout (spec Risk 4).
   const DEBOUNCE_MS = 80;
-  // How long to wait for the comments panel to appear before giving up.
+  // Check quickly at first, then continue at the slower recheck interval.
   const CONTAINER_POLL_MS = 1000;
   const CONTAINER_POLL_MAX = 30;
   // How often to check that the observed container is still in the DOM.
   // StreamYard is a SPA: a re-render can replace the comments panel wholesale,
   // which silently kills the MutationObserver. The watchdog notices and re-attaches.
   const CONTAINER_RECHECK_MS = 3000;
-  // Marks comment nodes we've already handled so we never reprocess them.
+  // Marks comment nodes we've handled for diagnostics. The content fingerprint
+  // below decides whether a virtualized row represents a new comment.
   const SEEN_ATTR = "data-safwa-seen";
   // Marks comment nodes that the LLM re-classified as semantic duplicates.
   const ANNOTATED_ATTR_LLM = "data-safwa-llm";
@@ -103,6 +104,8 @@
 
     let state = stateMod.createState();
     const pending = new Set();
+    const seenFingerprints = new WeakMap();
+    const seenComments = new WeakMap();
     let scheduled = false;
 
     const schedule = () => {
@@ -115,14 +118,41 @@
       scheduled = false;
       const nodes = [...pending];
       pending.clear();
+      ui.revealOrphanedDuplicates();
       for (const node of nodes) {
         try {
-          if (!node.isConnected || node.getAttribute(SEEN_ATTR)) continue;
+          if (!node.isConnected) continue;
           const comment = dom.extractComment(node);
-          if (!comment) continue; // couldn't read it; leave the node untouched
+          if (!comment) {
+            const previous = seenComments.get(node);
+            if (previous) {
+              previous.el = null;
+              seenComments.delete(node);
+              seenFingerprints.delete(node);
+              node.removeAttribute(SEEN_ATTR);
+              // Remove only our annotations and reveal dependent copies.
+              ui.render({ type: "greeting", comment: { el: node } }, CONFIG);
+            }
+            continue;
+          }
+          const fingerprint = [
+            comment.platform ?? "",
+            comment.handle,
+            comment.displayText,
+          ].join("\u0000");
+          if (seenFingerprints.get(node) === fingerprint) continue;
+          const previousComment = seenComments.get(node);
+          if (previousComment) previousComment.el = null;
+          seenFingerprints.set(node, fingerprint);
+          seenComments.set(node, comment);
           node.setAttribute(SEEN_ATTR, "1");
           const decision = grouping.processComment(comment, state, CONFIG);
           ui.render(decision, CONFIG);
+          // Adoption moves the signature's representative onto this row. Track
+          // that actual object so recycling invalidates the adopted anchor too.
+          if (decision.target?.firstComment?.el === node) {
+            seenComments.set(node, decision.target.firstComment);
+          }
 
           // Combo architecture: if the regex pipeline flagged this as needing
           // LLM review, asynchronously ask the self-hosted LLM whether it's a
@@ -130,7 +160,7 @@
           // node as a semantic duplicate (dimmed + badged, never hidden). If the
           // LLM is unreachable or says "primary", the regex decision stands.
           if (decision.needsLlmReview && CONFIG.LLM_ENABLED) {
-            llmReview(node, comment, decision, CONFIG, llm);
+            llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm);
           }
         } catch (err) {
           // One bad node must never break the rest of the feed.
@@ -150,7 +180,7 @@
      * (StreamYard re-render, virtualized scroll). We check isConnected before
      * touching it.
      */
-    function llmReview(node, comment, decision, CONFIG, llm) {
+    function llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm) {
       llm
         .classifyComment(comment, decision.recentQuestions, CONFIG)
         .then((result) => {
@@ -160,6 +190,9 @@
           // LLM says this is a semantic duplicate. Re-annotate: dim + badge,
           // never hide. Only the regex pipeline's exact match can auto-collapse.
           if (!node.isConnected) return; // node left the DOM while we waited
+          // StreamYard recycles virtual-scroller rows. Ignore a result for old
+          // content if this node now represents another comment.
+          if (seenFingerprints.get(node) !== fingerprint) return;
           node.classList.remove("safwa-primary");
           node.classList.add("safwa-dim");
           const dir = CONFIG.UI_DIRECTION;
@@ -185,8 +218,9 @@
       // Seed state from comments already on screen, then watch for new ones.
       // Clearing the seen-marker matters on RE-attach (after a container
       // replacement): rows that survived the re-render must be reprocessed into
-      // the fresh state, and ui.render is idempotent so that is safe.
+      // fresh state, and ui.render is idempotent so that is safe.
       for (const node of dom.collectCommentNodes(container)) {
+        seenFingerprints.delete(node);
         node.removeAttribute(SEEN_ATTR);
         pending.add(node);
       }
@@ -194,6 +228,13 @@
 
       const observer = new MutationObserver((mutations) => {
         for (const m of mutations) {
+          const changedRow = dom.closestCommentNode(m.target);
+          if (changedRow) pending.add(changedRow);
+          if (m.type === "characterData") {
+            const node = dom.closestCommentNode(m.target.parentElement);
+            if (node) pending.add(node);
+            continue;
+          }
           for (const added of m.addedNodes) {
             // The added node may BE a comment row, sit INSIDE one, or be a
             // wrapper CONTAINING several rows (batch renders do this).
@@ -207,12 +248,13 @@
         }
         schedule();
       });
-      observer.observe(container, { childList: true, subtree: true });
+      observer.observe(container, { childList: true, subtree: true, characterData: true });
 
       // Watchdog: if a StreamYard re-render replaces the panel, the observer
       // goes silent forever. Detect it, reset to a fresh state, and re-scan the
       // new panel from scratch (the old annotations died with the old nodes).
       const watchdog = setInterval(() => {
+        ui.revealOrphanedDuplicates();
         if (container.isConnected) return;
         clearInterval(watchdog);
         observer.disconnect();
@@ -238,14 +280,17 @@
         attach(container);
         return;
       }
-      if (++attempts < CONTAINER_POLL_MAX) {
-        setTimeout(tryFind, CONTAINER_POLL_MS);
-      } else {
+      attempts++;
+      if (attempts === CONTAINER_POLL_MAX) {
         console.warn(
-          `${TAG} comments container not found after ${CONTAINER_POLL_MAX} tries; ` +
-            `giving up (fail-safe). Open the comments panel, or update SELECTORS.`
+          `${TAG} comments container still not found after ${CONTAINER_POLL_MAX} tries; ` +
+            `continuing slow checks (fail-safe). Open the comments panel, or update SELECTORS.`
         );
       }
+      setTimeout(
+        tryFind,
+        attempts < CONTAINER_POLL_MAX ? CONTAINER_POLL_MS : CONTAINER_RECHECK_MS
+      );
     };
     tryFind();
   }
