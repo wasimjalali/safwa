@@ -11,9 +11,9 @@
 
 import { CONFIG } from "../src/config.js";
 import { createState } from "../src/state.js";
-import { processComment } from "../src/grouping.js";
+import { processComment, applyLlmOverride } from "../src/grouping.js";
 import { render } from "../src/ui.js";
-import { classifyComment } from "../src/llm-classifier.js";
+import { classifyComment, llmContextFromDecision } from "../src/llm-classifier.js";
 
 const DEFAULT_REPLAYS = [
   "replay-ic2UFFlRtU8.json", // 66 min · 101 comments
@@ -48,8 +48,10 @@ const DECISION_LABELS = {
   continuation: "joined to previous",
   "duplicate (exact)": "collapsed (exact duplicate)",
   "duplicate (fuzzy)": "dimmed (possible duplicate)",
-  "extra (in window)": "dimmed (2nd, in window)",
-  "extra (out)": "hidden (2nd question)",
+  "duplicate (semantic)": "collapsed (LLM duplicate)",
+  "extra (in window)": "dimmed (2nd, awaiting LLM)",
+  "extra (out)": "dimmed (2nd, awaiting LLM)",
+  "extra (hidden)": "hidden (LLM confirmed 2nd question)",
   greeting: "greeting, untouched",
 };
 
@@ -92,9 +94,12 @@ function clock(offsetMs) {
 
 function labelOf(decision) {
   if (decision.type === "duplicate") {
-    return decision.kind === "exact" ? "duplicate (exact)" : "duplicate (fuzzy)";
+    if (decision.kind === "exact") return "duplicate (exact)";
+    if (decision.kind === "semantic") return "duplicate (semantic)";
+    return "duplicate (fuzzy)";
   }
   if (decision.type === "extra") {
+    if (decision.hide) return "extra (hidden)";
     return decision.withinWindow ? "extra (in window)" : "extra (out)";
   }
   return decision.type;
@@ -115,17 +120,24 @@ function paintStats() {
   }
 }
 
-function applySemanticBadge(row) {
-  row.classList.remove("safwa-primary");
-  row.classList.add("safwa-dim");
-  let badge = row.querySelector(".safwa-badge.safwa-badge--semantic");
-  if (!badge) {
-    badge = document.createElement("span");
-    badge.className = "safwa-badge safwa-badge--semantic";
-    row.appendChild(badge);
-  }
-  badge.setAttribute("dir", CONFIG.UI_DIRECTION);
-  badge.textContent = CONFIG.LABELS.semanticDuplicate;
+function applyOverride(row, comment, decision, run) {
+  if (!decision.needsLlmReview || !CONFIG.LLM_ENABLED || !llmEl.checked) return;
+  classifyComment(
+    comment,
+    decision.recentQuestions,
+    CONFIG,
+    llmContextFromDecision(comment, decision)
+  )
+    .then((result) => {
+      if (run !== runId || !row.isConnected) return;
+      const next = applyLlmOverride(decision, result, state, CONFIG);
+      if (!next || next === decision) return;
+      render(next, CONFIG);
+      for (const extra of next.alsoRender || []) {
+        if (extra?.comment?.el) render(extra, CONFIG);
+      }
+    })
+    .catch(() => {});
 }
 
 function step(comment) {
@@ -140,16 +152,7 @@ function step(comment) {
   const key = labelOf(decision);
   tally.set(key, (tally.get(key) ?? 0) + 1);
   paintStats();
-
-  if (decision.needsLlmReview && CONFIG.LLM_ENABLED && llmEl.checked) {
-    classifyComment(comment, decision.recentQuestions, CONFIG)
-      .then((result) => {
-        if (result?.classification === "duplicate" && row.isConnected) {
-          applySemanticBadge(row);
-        }
-      })
-      .catch(() => {}); // regex decision stands; the replay never breaks
-  }
+  applyOverride(row, comment, decision, runId);
 }
 
 // --- playback ----------------------------------------------------------------

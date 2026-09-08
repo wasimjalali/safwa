@@ -23,7 +23,7 @@ A Manifest V3 Chrome extension that cleans a StreamYard live Q&A comment feed in
 
 4. **Fail safe, never corrupt the feed.** If selectors stop matching, the extension does nothing visible and logs a clear `[Ṣafwa]` console warning. A `try/catch` that exists to *fail safe around DOM reads* is allowed here (it is spec-mandated); a `try/catch` that silently swallows a logic bug is not.
 
-5. **Human in the loop (v1).** Only high-confidence exact duplicates may auto-collapse (`AUTO_COLLAPSE_EXACT_DUPLICATES`). Everything ambiguous (continuation merges, flagged second questions) is marked visually, never hidden. `AUTO_HIDE_ANYTHING_AMBIGUOUS` must stay `false` in v1.
+5. **Do not hide a maybe.** Only regex-certain exact/token-set duplicates auto-collapse immediately. Ambiguous extras and partial fuzzies stay visible until the LLM confirms. `AUTO_HIDE_ANYTHING_AMBIGUOUS` must stay `false`.
 
 6. **Cost asymmetry.** Wrongly merging two questions is cheap (a longer block). Wrongly hiding a continuation destroys a real question. Inside the time window, ambiguity resolves toward merging, never toward hiding.
 
@@ -34,21 +34,22 @@ A Manifest V3 Chrome extension that cleans a StreamYard live Q&A comment feed in
 
 ## v2: LLM semantic layer (combo architecture)
 
-The regex pipeline handles exact/fuzzy dedup, continuation, and extra-question detection instantly. Its one gap is **semantic deduplication** (same question, completely different words, zero shared tokens). v2 adds an LLM as an async second opinion for exactly these cases.
+The regex pipeline handles exact/fuzzy dedup, continuation, and extra-question detection instantly. Ambiguous cases go to the LLM as an async second opinion.
 
-Key rules for v2:
-- The LLM is **advisory only**. It can dim + badge a comment as "semantic duplicate" but **never hides it**. Only the regex pipeline's exact match can auto-collapse.
-- The LLM call is **async and non-blocking**. The regex decision renders first; the LLM re-annotates later if it disagrees. The feed is never delayed.
-- If the LLM is unreachable, times out (8s), or returns garbage, the regex decision stands. The feed is never broken.
-- `LLM_ENABLED: false` in `config.js` reverts to pure v1 behavior.
+Key rules:
+- Regex-certain cases never wait on the model: exact text, token-set identity (reorder), announced continuation, greetings.
+- Regex-uncertain cases (semantic duplicates, cue-less splits, extras, partial fuzzy) render first; the LLM must confirm before we hide or count.
+- If the LLM says duplicate, hide the copy and increment N on the original. If it says extra, hide with no badge. If it says continuation, join.
+- If the LLM is unreachable, times out (8s), or returns garbage, the regex decision stands. The feed is never delayed or broken.
+- `LLM_ENABLED: false` in `config.js` reverts to regex-only (ambiguous extras/fuzzies stay visible).
 - Live model: Gemma 4 26B on Cloudflare Workers AI (`@cf/google/gemma-4-26b-a4b-it`), via the `safwa-llm` Worker in `deploy/cloudflare`. The API token never lives in the extension.
 
 ## Architecture notes
 
 - The matching core (`normalize.js`, `dedup.js`, `grouping.js`, `state.js`) is pure: no DOM, no `chrome.*`, no globals. It must stay importable in plain Node so `test/run-tests.js` can prove it on `test/mock-comments.js`.
-- `content.js` is the browser bootstrap. It loads the ES-module core, wires the MutationObserver, and connects `dom.js` (extract) -> core (decide) -> `ui.js` (render). Keep browser-only concerns here and in `dom.js`/`ui.js`.
-- `llm-classifier.js` is browser-only (uses `fetch`). It calls the Cloudflare Worker, which runs Gemma 4. It is always called async, after the regex pipeline has already rendered its decision. The system prompt follows Gemma 4 docs: a real `system` role, thinking off (`chat_template_kwargs.enable_thinking: false`, no `<|think|>`, no `/no_think`), few-shot, question last. Keep `llm-test/eval.py` in lockstep.
-- The single source of truth for pipeline order is the orchestrator in `grouping.js`. Both `content.js` and the tests call it, so the order is never duplicated.
+- `content.js` is the browser bootstrap. It loads the ES-module core, wires the MutationObserver, and connects `dom.js` (extract) -> core (decide) -> `ui.js` (render), then `applyLlmOverride` if the LLM confirms.
+- `llm-classifier.js` is browser-only (uses `fetch`). Two prompts: `room` (duplicate vs primary) and `same_person` (continuation vs duplicate vs extra). Gemma 4: real `system` role, thinking off (`chat_template_kwargs.enable_thinking: false`), few-shot, question last.
+- The single source of truth for pipeline order is `processComment` in `grouping.js`. The single source of truth for LLM confirmations is `applyLlmOverride`. Both content.js and the tests call them, so the order is never duplicated.
 
 ## How to verify
 

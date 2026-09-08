@@ -180,4 +180,18 @@ export const STREAMS = {
     comment("نادیه", "youtube", "آیا زکات بر طلای زیورآلات واجب است؟", 0),
     comment("طاهر", "youtube", "آیا سکه‌های طلا زکات دارند؟", 4000),
   ],
+
+  // Partial token overlap (Jaccard ~0.86): regex fuzzy, not token-set identity.
+  // Must stay visible and wait for the LLM — unlike a pure reorder.
+  fuzzyPartialOverlap: [
+    comment("نادیه", "youtube", "آیا زکات بر طلا واجب است دیگر؟", 0),
+    comment("فرید", "youtube", "آیا زکات بر طلا واجب است؟", 1500),
+  ],
+
+  // Same person, inside the window, first line ends with «؟» so regex has no
+  // continuation cue. Must go to the LLM as an extra (not auto-joined).
+  cueLessSplit: [
+    comment("نرگس", "youtube", "حکم بیمه چیست؟", 0),
+    comment("نرگس", "youtube", "منظورم بیمه دولتی است که قسط ماهانه دارد چه می‌شود؟", 8000),
+  ],
 };

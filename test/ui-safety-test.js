@@ -51,4 +51,27 @@ assert.equal(
 assert.equal(classes.has("safwa-dim"), true, "expected the extra question to be dimmed");
 assert.equal(badges.length, 1, "expected the extra-question badge to be present");
 
+const hiddenClasses = new Set();
+const hiddenBadges = [];
+const hiddenNode = {
+  classList: {
+    add: (...names) => names.forEach((name) => hiddenClasses.add(name)),
+    remove: (...names) => names.forEach((name) => hiddenClasses.delete(name)),
+  },
+  appendChild: (badge) => hiddenBadges.push(badge),
+  querySelector: () => null,
+  querySelectorAll: (selector) => (selector === ".safwa-badge" ? [...hiddenBadges] : []),
+  setAttribute: () => {},
+};
+render(
+  {
+    type: "extra",
+    hide: true,
+    comment: { el: hiddenNode },
+  },
+  CONFIG
+);
+assert.equal(hiddenClasses.has("safwa-collapsed"), true, "expected a confirmed extra to be hidden");
+assert.equal(hiddenBadges.length, 0, "expected no second-question badge on a hidden extra");
+
 console.log("ui.js human-in-the-loop safety regression: PASS");

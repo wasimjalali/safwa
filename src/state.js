@@ -11,6 +11,8 @@ import { foldHandle } from "./normalize.js";
  * @typedef {Object} HandleRecord
  * @property {QuestionBlock|null} open  the handle's currently-open block (for
  *   continuation merging), or null if no question is open.
+ * @property {QuestionBlock|null} lastBlock  the last block this handle opened
+ *   (kept after `open` is cleared, so the LLM can still join a cue-less split).
  * @property {boolean} hasPrimaryQuestion  whether the handle has already had its
  *   one allowed logical question registered this session.
  */
@@ -43,7 +45,7 @@ export function identityKey(comment) {
 export function getOrCreateHandle(state, key) {
   let record = state.handles.get(key);
   if (!record) {
-    record = { open: null, hasPrimaryQuestion: false };
+    record = { open: null, lastBlock: null, hasPrimaryQuestion: false };
     state.handles.set(key, record);
   }
   return record;

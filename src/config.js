@@ -112,23 +112,22 @@ export const CONFIG = {
   UI_DIRECTION: "rtl",
   USE_PERSIAN_DIGITS_IN_UI: false,
 
-  // --- LLM semantic classifier (combo architecture, v2) ---
+  // --- LLM semantic classifier (combo architecture) ---
   //
-  // The regex pipeline handles 80-90% of comments instantly. When a comment
-  // is ambiguous (fuzzy match below threshold, or a potential semantic duplicate
-  // with zero shared tokens), it is sent to the self-hosted LLM for a second
-  // opinion. The LLM decision is advisory: it can mark a comment as a
-  // "semantic_duplicate" but never hides it. Only the regex pipeline's exact
-  // match can auto-collapse.
+  // Regex decides instantly wherever it is certain (exact text, token-set
+  // identity, announced continuation, greetings). Everywhere it is only
+  // "probably" — semantic duplicates, cue-less splits, extras — regex paints
+  // first so the live feed never waits, then the LLM must confirm before we
+  // hide or count. Timeout / garbage leaves the regex look (never hide a maybe).
   //
-  // Advisory LLM: Gemma 4 26B on Cloudflare Workers AI (eval winner).
+  // Advisory model: Gemma 4 26B on Cloudflare Workers AI.
   // The extension calls a thin Worker so the API token never sits in the
   // unpacked Chrome package. Deploy: deploy/cloudflare.
   LLM_ENABLED: true,
   LLM_ENDPOINT: "https://safwa-llm.karko-ai.workers.dev/v1/chat/completions",
   LLM_MODEL: "@cf/google/gemma-4-26b-a4b-it",
   LLM_TIMEOUT_MS: 8000, // fall back to regex if no response in 8s
-  LLM_MAX_CONTEXT_COMMENTS: 8, // send this many recent questions for comparison
+  LLM_MAX_CONTEXT_COMMENTS: 30, // unique questions from this session for late paraphrases
 
   // Dari badge + popup labels. Edit the wording here; nothing else needs to
   // change. {n} in COUNT is replaced with the (optionally Persian) digit count.
@@ -143,7 +142,7 @@ export const CONFIG = {
     popupTagline: "فلتر سوالات پخش زنده",          // "live stream question filter"
     popupStatusOn: "فعال",                          // "on"
     popupStatusOff: "غیرفعال",                      // "off"
-    popupHintOn: "سوال‌های تکراری جمع می‌شوند و سوال‌های اضافه نشانی می‌شوند",
+    popupHintOn: "سوال‌های تکراری جمع می‌شوند و سوال دوم پنهان می‌شود",
     popupHintOff: "ستون نظرات بدون هیچ تغییری نمایش داده می‌شود",
     popupFooter: "روی StreamYard کار می‌کند",       // "works on StreamYard"
   },

@@ -1,33 +1,30 @@
 /*
  * llm-classifier.js - the LLM semantic layer of the combo architecture.
  *
- * Browser-only: uses fetch(). Called by content.js when the regex pipeline
- * returns an ambiguous result (a comment that might be a semantic duplicate
- * the regex couldn't catch, or a fuzzy match below threshold).
+ * Browser-only: uses fetch(). Called by content.js after the regex pipeline
+ * has already rendered, so the live feed never waits. Two review kinds:
  *
- * The LLM is ADVISORY ONLY. It can mark a comment as "semantic_duplicate"
- * but the UI never hides it (only dims + badges). Auto-collapse is reserved
- * for the regex pipeline's exact matches.
+ *   room         — first question from this handle: duplicate vs primary
+ *   same_person  — cue-less extra / fuzzy after they already asked:
+ *                  continuation vs duplicate vs extra
  *
- * Fail-safe: if the LLM is unreachable, times out, or returns garbage, the
- * caller falls back to the regex decision. The feed is never broken.
+ * Regex-certain cases never get here. If the LLM is unreachable, times out, or
+ * returns garbage, the caller keeps the regex decision (never hide on a maybe).
  * Live path: Cloudflare Worker in deploy/cloudflare (Gemma 4 26B).
  */
 
 const TAG = "[Ṣafwa]";
 
-// Gemma 4 system turn. Official docs: Gemma 4 supports a `system` role;
-// do not put `<|think|>` here (thinking is off via chat_template_kwargs);
-// do not use `/no_think` (that is llama.cpp, not Google). Few-shot, then
-// the live comments in the user turn, question last.
-const SYSTEM_PROMPT = `You classify Dari and Persian questions from a live Islamic Q&A.
+const ROOM_SYSTEM_PROMPT = `You classify Dari and Persian questions from a live Islamic Q&A.
 
-Decide if the new comment asks the same underlying question as any recent comment.
+Decide if the new comment asks the same underlying question as any numbered recent comment.
 
 Reply with only one JSON object and no other text:
-{"classification":"duplicate"}
+{"classification":"duplicate","match":1}
 or
 {"classification":"primary"}
+
+match is the 1-based index of the recent comment that is the same ask. Comments are numbered newest first: [1] is the most recent.
 
 duplicate: the teacher would give one answer to both. Ignore wording, dialect, greetings and Arabic vs Persian letters (ي/ی, ك/ک). Treat synonyms as the same ask (واجب/فرض/لازم, عطر/ادکلن, موسیقی/آهنگ, روزه/روژه).
 
@@ -36,63 +33,133 @@ primary: a different ask. A shared setting (سفر, روزه) or a shared topic 
 If both readings are reasonable, choose primary.
 
 Examples:
-Recent: آیا زکات بر طلا واجب است؟
+Recent:
+[1] آیا زکات بر طلا واجب است؟
 New: طلا زکات دارد یا نه؟
-{"classification":"duplicate"}
+{"classification":"duplicate","match":1}
 
-Recent: آیا نماز جمعه در حال سفر واجب است؟
+Recent:
+[1] آیا نماز جمعه در حال سفر واجب است؟
 New: آیا روزه گرفتن در سفر واجب است؟
 {"classification":"primary"}
 
-Recent: نماز تراویح چند رکعت است؟
+Recent:
+[1] نماز تراویح چند رکعت است؟
 New: نماز تراويح چند رکعت اسـت؟
-{"classification":"duplicate"}
+{"classification":"duplicate","match":1}
 
-Recent: آیا زکات بر طلای زیورآلات واجب است؟
+Recent:
+[1] آیا زکات بر طلای زیورآلات واجب است؟
 New: آیا سکه‌های طلا زکات دارند؟
 {"classification":"primary"}
 
-Recent: آیا نماز خواندن در حال نشسته جایز است؟
+Recent:
+[1] آیا نماز خواندن در حال نشسته جایز است؟
 New: برای خانم‌ها چطور؟
 {"classification":"primary"}`;
 
-/**
- * Build the user message with the new comment and recent feed context.
- *
- * @param {object} newComment - { handle, platform, displayText }
- * @param {array} recentQuestions - array of { handle, platform, displayText }
- * @returns {string}
- */
-function buildUserPrompt(newComment, recentQuestions) {
-  const lines = ["Recent comments:"];
-  for (const q of recentQuestions) {
-    lines.push(`- "${q.displayText}"`);
-  }
-  lines.push("");
-  lines.push(`New comment: "${newComment.displayText}"`);
-  lines.push("");
-  lines.push("Classify the new comment.");
+const SAME_PERSON_SYSTEM_PROMPT = `You classify a follow-up comment from someone who already asked in a live Dari/Persian Islamic Q&A.
+
+Their previous question is given, plus numbered recent questions from the room.
+
+Reply with only one JSON object and no other text:
+{"classification":"continuation"}
+{"classification":"duplicate","match":1}
+{"classification":"extra"}
+
+continuation: more of THIS PERSON's previous question — a split sentence, a missing clause, "I mean…", or the rest of the same ask. Not a new question.
+duplicate: the same underlying question as one numbered recent comment (their own restated in new words, or someone else's). match is that 1-based index.
+extra: a genuinely different second question from this person.
+
+If continuation and extra are both reasonable, choose continuation.
+If duplicate and extra are both reasonable, choose duplicate.
+If you are told continuation is not allowed, never choose continuation.
+
+Ignore wording, dialect, greetings and Arabic vs Persian letters (ي/ی, ك/ک).
+
+Examples:
+Previous: سوال من در مورد میراث است وقتی که چند وارث وجود دارد
+Gap: 8s
+New: دارایی شامل خانه و پول نقد می‌شود چه باید کرد؟
+{"classification":"continuation"}
+
+Previous: حکم گوش دادن به موسیقی چیست؟
+Gap: 5s
+New: آیا قهوه حلال است؟
+{"classification":"extra"}
+
+Previous: آیا زکات بر طلا واجب است؟
+Gap: 90s
+Recent:
+[1] آیا زکات بر طلا واجب است؟
+New: طلا زکات دارد یا نه؟
+{"classification":"duplicate","match":1}
+
+Previous: آیا نماز خواندن در حال نشسته جایز است؟
+Gap: 90s
+New: حکم روزه گرفتن در سفر چیست؟
+{"classification":"extra"}`;
+
+function numberedRecent(recentQuestions) {
+  if (!recentQuestions || recentQuestions.length === 0) return "(none)";
+  const lines = ["(numbered newest first — [1] is the most recent)"];
+  recentQuestions.forEach((q, i) => {
+    lines.push(`[${i + 1}] ${q.displayText}`);
+  });
   return lines.join("\n");
+}
+
+function buildRoomPrompt(newComment, recentQuestions) {
+  return [
+    "Recent comments:",
+    numberedRecent(recentQuestions),
+    "",
+    `New comment: "${newComment.displayText}"`,
+    "",
+    "Classify the new comment.",
+  ].join("\n");
+}
+
+function buildSamePersonPrompt(newComment, recentQuestions, context) {
+  const gapMs = context.gapMs;
+  const gap =
+    typeof gapMs === "number" && Number.isFinite(gapMs)
+      ? `${Math.max(0, Math.round(gapMs / 1000))}s`
+      : "unknown";
+  const allowed =
+    context.allowContinuation === false
+      ? "no (fragment cap reached — never choose continuation)"
+      : "yes";
+  return [
+    `This person's previous question: "${context.previousText || ""}"`,
+    `Gap since previous: ${gap}`,
+    `Continuation allowed: ${allowed}`,
+    "",
+    "Recent comments:",
+    numberedRecent(recentQuestions),
+    "",
+    `New comment: "${newComment.displayText}"`,
+    "",
+    "Classify the new comment.",
+  ].join("\n");
 }
 
 /**
  * Parse the LLM response. Extracts the JSON object from the response text,
- * handling markdown fences and thinking-process output.
+ * handling markdown fences.
  *
  * @param {string} raw
- * @returns {{ classification: string } | null}
+ * @returns {{ classification: string, match?: number } | null}
  */
-function parseResponse(raw) {
+export function parseLlmResponse(raw) {
   if (!raw) return null;
   let text = raw.trim();
 
-  // Strip markdown code fences
   if (text.startsWith("```")) {
     const lines = text.split("\n");
     text = lines.filter((l) => !l.startsWith("```")).join("\n");
   }
 
-  // Find the JSON object
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1) return null;
@@ -100,36 +167,49 @@ function parseResponse(raw) {
   try {
     const obj = JSON.parse(text.slice(start, end + 1));
     const cls = (obj.classification || "").toLowerCase().trim();
-    if (cls === "duplicate" || cls === "primary") {
-      return { classification: cls };
+    if (cls !== "duplicate" && cls !== "primary" && cls !== "continuation" && cls !== "extra") {
+      return null;
     }
-    return null;
+    const result = { classification: cls };
+    const match = Number(obj.match ?? obj.match_index ?? obj.index);
+    if (Number.isInteger(match) && match >= 1) result.match = match;
+    return result;
   } catch {
     return null;
   }
 }
 
 /**
- * Ask the LLM whether a new comment is a semantic duplicate of something
- * already in the feed.
+ * Ask the LLM to classify a regex-uncertain comment.
  *
- * @param {object} newComment - { handle, platform, displayText }
+ * @param {object} newComment - { handle, platform, displayText, timestamp }
  * @param {array} recentQuestions - recent unique questions for comparison
- * @param {object} config - CONFIG (uses LLM_ENDPOINT, LLM_MODEL, LLM_TIMEOUT_MS)
- * @returns {Promise<{ classification: string } | null>} - null means the LLM
- *   was unavailable or returned garbage; caller falls back to regex decision.
+ * @param {object} config
+ * @param {object} [context]
+ * @param {"room"|"same_person"} [context.reviewKind]
+ * @param {string} [context.previousText]
+ * @param {number} [context.gapMs]
+ * @param {boolean} [context.allowContinuation]
+ * @returns {Promise<{ classification: string, match?: number } | null>}
  */
-export async function classifyComment(newComment, recentQuestions, config) {
+export async function classifyComment(newComment, recentQuestions, config, context = {}) {
   if (!config.LLM_ENABLED || !config.LLM_ENDPOINT) return null;
+
+  const reviewKind = context.reviewKind === "same_person" ? "same_person" : "room";
+  const system = reviewKind === "same_person" ? SAME_PERSON_SYSTEM_PROMPT : ROOM_SYSTEM_PROMPT;
+  const user =
+    reviewKind === "same_person"
+      ? buildSamePersonPrompt(newComment, recentQuestions, context)
+      : buildRoomPrompt(newComment, recentQuestions);
 
   const body = JSON.stringify({
     model: config.LLM_MODEL,
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserPrompt(newComment, recentQuestions) },
+      { role: "system", content: system },
+      { role: "user", content: user },
     ],
     temperature: 0.0,
-    max_tokens: 64,
+    max_tokens: 96,
     chat_template_kwargs: { enable_thinking: false },
   });
 
@@ -152,7 +232,7 @@ export async function classifyComment(newComment, recentQuestions, config) {
     const data = await res.json();
     const message = data?.choices?.[0]?.message ?? {};
     const content = message.content || message.reasoning_content || message.reasoning || "";
-    const parsed = parseResponse(content);
+    const parsed = parseLlmResponse(content);
 
     if (!parsed) {
       console.warn(`${TAG} LLM response could not be parsed; falling back to regex.`);
@@ -170,4 +250,17 @@ export async function classifyComment(newComment, recentQuestions, config) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export function llmContextFromDecision(comment, decision) {
+  const previous = decision.previousBlock;
+  return {
+    reviewKind: decision.reviewKind === "same_person" ? "same_person" : "room",
+    previousText: previous?.displayText ?? "",
+    gapMs:
+      previous && typeof comment.timestamp === "number" && typeof previous.lastTimestamp === "number"
+        ? comment.timestamp - previous.lastTimestamp
+        : null,
+    allowContinuation: decision.allowContinuation !== false,
+  };
 }

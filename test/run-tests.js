@@ -12,7 +12,8 @@ import { CONFIG } from "../src/config.js";
 import { normalize } from "../src/normalize.js";
 import { createState, identityKey } from "../src/state.js";
 import { jaccard } from "../src/dedup.js";
-import { processComment } from "../src/grouping.js";
+import { processComment, applyLlmOverride } from "../src/grouping.js";
+import { parseLlmResponse } from "../src/llm-classifier.js";
 import { STREAMS, comment } from "./mock-comments.js";
 
 let passed = 0;
@@ -144,13 +145,16 @@ test("2) reworded/reordered near-duplicate is caught at default threshold", () =
   const { decisions } = runStream(STREAMS.nearDuplicate);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "duplicate");
+  assert.equal(decisions[1].kind, "exact");
   assert.equal(decisions[1].count, 2);
+  assert.equal(decisions[1].needsLlmReview, undefined);
 });
 
 test("3) split question (same handle, in window, with cue) => one merged block", () => {
   const { state, decisions } = runStream(STREAMS.splitQuestion);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "continuation");
+  assert.equal(decisions[1].needsLlmReview, undefined);
   const block = decisions[1].block;
   assert.equal(block.fragmentCount, 2);
   assert.match(block.displayText, /میراث/);
@@ -162,6 +166,9 @@ test("4) genuine second question later (outside window) => flagged extra", () =>
   const { decisions } = runStream(STREAMS.secondQuestionLater);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "extra");
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.equal(decisions[1].reviewKind, "same_person");
+  assert.equal(decisions[1].hide, undefined);
 });
 
 test("5) two different short questions from two handles => never merged", () => {
@@ -175,6 +182,8 @@ test("4b) distinct second question INSIDE window, no cue => extra", () => {
   const { decisions } = runStream(STREAMS.distinctSecondInsideWindow);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "extra");
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.equal(decisions[1].reviewKind, "same_person");
 });
 
 // =====================================================================
@@ -239,6 +248,10 @@ test("a quick second comment inside the window is flagged extra, withinWindow=tr
 
 test("MAX_COMMENTS_PER_QUESTION is honored as the cap value", () => {
   assert.equal(CONFIG.MAX_COMMENTS_PER_QUESTION, 2);
+});
+
+test("LLM context window is 30 unique questions", () => {
+  assert.equal(CONFIG.LLM_MAX_CONTEXT_COMMENTS, 30);
 });
 
 test("a greeting-only comment does not consume the person's one question slot", () => {
@@ -361,8 +374,7 @@ test("semantic distinct (Friday prayer vs fasting, both about travel): both prim
 test("first comment in a stream has no LLM review (nothing to compare against)", () => {
   const { decisions } = runStream(STREAMS.exactTriplicate);
   assert.equal(decisions[0].type, "primary");
-  // First comment: no prior questions, so needsLlmReview should be false
-  assert.equal(decisions[0].needsLlmReview, false);
+  assert.ok(!decisions[0].needsLlmReview);
 });
 
 test("exact duplicate is NOT flagged for LLM review (regex already caught it)", () => {
@@ -384,6 +396,212 @@ test("gold jewelry vs coins: regex leaves both primary for LLM", () => {
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "primary");
   assert.equal(decisions[1].needsLlmReview, true);
+});
+
+// =====================================================================
+group("LLM routing (regex-certain vs regex-uncertain)");
+
+test("partial-overlap fuzzy is NOT auto-hidden; it waits for the LLM", () => {
+  const { decisions } = runStream(STREAMS.fuzzyPartialOverlap);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "duplicate");
+  assert.equal(decisions[1].kind, "fuzzy");
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.equal(decisions[1].reviewKind, "room");
+  assert.equal(decisions[1].count, 1);
+});
+
+test("cue-less split (no ادامه / connector) is extra for the LLM, not auto-joined", () => {
+  const { decisions } = runStream(STREAMS.cueLessSplit);
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "extra");
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.equal(decisions[1].reviewKind, "same_person");
+  assert.equal(decisions[1].allowContinuation, true);
+});
+
+test("over-cap extra must not be joinable by the LLM", () => {
+  const { decisions } = runStream(STREAMS.cappedContinuation);
+  assert.equal(decisions[2].type, "extra");
+  assert.equal(decisions[2].needsLlmReview, true);
+  assert.equal(decisions[2].allowContinuation, false);
+});
+
+test("announced ادامه continuation still skips the LLM", () => {
+  const stream = [
+    comment("جواد", "youtube", "من این کار را کردم، اما", 0),
+    comment("جواد", "youtube", "ادامه سوال هنوز برایم مشخص نیست که این ازدواج خیر است یا شر؟", 36000),
+  ];
+  const { decisions } = runStream(stream);
+  assert.equal(decisions[1].type, "continuation");
+  assert.equal(decisions[1].needsLlmReview, undefined);
+});
+
+test("greeting does not go to the LLM", () => {
+  const { decisions } = runStream(STREAMS.greetingThenQuestion);
+  assert.equal(decisions[0].type, "greeting");
+  assert.equal(decisions[0].needsLlmReview, undefined);
+});
+
+// =====================================================================
+group("applyLlmOverride");
+
+test("semantic duplicate: LLM hide + count on the original", () => {
+  const { state, decisions } = runStream(STREAMS.semanticPerfumeFasting);
+  const next = applyLlmOverride(
+    decisions[1],
+    { classification: "duplicate", match: 1 },
+    state,
+    CONFIG
+  );
+  assert.equal(next.type, "duplicate");
+  assert.equal(next.kind, "semantic");
+  assert.equal(next.count, 2);
+  assert.equal(state.signatures.size, 1);
+});
+
+test("semantic distinct: LLM primary leaves both questions in the store", () => {
+  const { state, decisions } = runStream(STREAMS.semanticDistinctTravel);
+  const next = applyLlmOverride(decisions[1], { classification: "primary" }, state, CONFIG);
+  assert.equal(next.type, "primary");
+  assert.equal(state.signatures.size, 2);
+});
+
+test("LLM primary on an extra does not hide (fail-safe)", () => {
+  const { state, decisions } = runStream(STREAMS.secondQuestionLater);
+  const next = applyLlmOverride(decisions[1], { classification: "primary" }, state, CONFIG);
+  assert.equal(next.type, "extra");
+  assert.equal(next.hide, undefined);
+});
+
+test("LLM timeout / garbage leaves the regex extra visible", () => {
+  const { state, decisions } = runStream(STREAMS.secondQuestionLater);
+  const next = applyLlmOverride(decisions[1], null, state, CONFIG);
+  assert.equal(next.type, "extra");
+  assert.equal(next.hide, undefined);
+});
+
+test("LLM confirms extra: hide, no join", () => {
+  const { state, decisions } = runStream(STREAMS.secondQuestionLater);
+  const next = applyLlmOverride(decisions[1], { classification: "extra" }, state, CONFIG);
+  assert.equal(next.type, "extra");
+  assert.equal(next.hide, true);
+});
+
+test("LLM joins a cue-less split as a continuation", () => {
+  const { state, decisions } = runStream(STREAMS.cueLessSplit);
+  const next = applyLlmOverride(decisions[1], { classification: "continuation" }, state, CONFIG);
+  assert.equal(next.type, "continuation");
+  assert.equal(next.block.fragmentCount, 2);
+  assert.match(next.block.displayText, /بیمه/);
+  assert.match(next.block.displayText, /قسط/);
+});
+
+test("LLM restatement of the same person's question counts as N", () => {
+  const { state, decisions } = runStream(STREAMS.secondQuestionLater);
+  const next = applyLlmOverride(
+    decisions[1],
+    { classification: "duplicate", match: 1 },
+    state,
+    CONFIG
+  );
+  assert.equal(next.type, "duplicate");
+  assert.equal(next.kind, "semantic");
+  assert.equal(next.count, 2);
+});
+
+test("LLM cannot join past the fragment cap — leave the fragment visible", () => {
+  const { state, decisions } = runStream(STREAMS.cappedContinuation);
+  const next = applyLlmOverride(decisions[2], { classification: "continuation" }, state, CONFIG);
+  assert.equal(next.type, "extra");
+  assert.equal(next.hide, undefined);
+  assert.equal(decisions[1].block.fragmentCount, 2);
+});
+
+test("fuzzy LLM confirm hides like an exact duplicate", () => {
+  const { state, decisions } = runStream(STREAMS.fuzzyPartialOverlap);
+  const next = applyLlmOverride(
+    decisions[1],
+    { classification: "duplicate", match: 1 },
+    state,
+    CONFIG
+  );
+  assert.equal(next.type, "duplicate");
+  assert.equal(next.kind, "semantic");
+  assert.equal(next.count, 2);
+});
+
+test("fuzzy LLM reject promotes a first-time asker to primary", () => {
+  const { state, decisions } = runStream(STREAMS.fuzzyPartialOverlap);
+  const next = applyLlmOverride(decisions[1], { classification: "primary" }, state, CONFIG);
+  assert.equal(next.type, "primary");
+  assert.equal(next.count, undefined);
+  assert.equal(state.signatures.size, 2);
+});
+
+test("LLM duplicate without a match index does not hide when several candidates exist", () => {
+  const stream = [
+    comment("بلال", "youtube", "وقت نماز صبح چه وقت است؟", 0),
+    comment("هانا", "youtube", "مسجد کجاست؟", 1000),
+    comment("رضا", "youtube", "روزه‌دار می‌تواند ادکلن بزند؟", 2000),
+  ];
+  const { state, decisions } = runStream(stream);
+  assert.equal(decisions[2].type, "primary");
+  const next = applyLlmOverride(decisions[2], { classification: "duplicate" }, state, CONFIG);
+  assert.equal(next.type, "primary");
+  assert.equal(state.signatures.size, 3);
+});
+
+test("same-person fuzzy + primary stays visible extra, not hidden", () => {
+  const stream = [
+    comment("عمر", "youtube", "آیا نماز خواندن در حال نشسته جایز است؟", 0),
+    comment("عمر", "youtube", "آیا نماز خواندن در حال نشسته جایز است دیگر؟", 90000),
+  ];
+  const { state, decisions } = runStream(stream);
+  assert.equal(decisions[1].type, "duplicate");
+  assert.equal(decisions[1].kind, "fuzzy");
+  const next = applyLlmOverride(decisions[1], { classification: "primary" }, state, CONFIG);
+  assert.equal(next.type, "extra");
+  assert.equal(next.hide, false);
+});
+
+test("stale primary LLM duplicate does not close a newer extra block", () => {
+  const { state, decisions } = runStream(STREAMS.semanticPerfumeFasting);
+  const extra = processComment(
+    comment("رضا", "youtube", "حکم قهوه چیست؟", 20000),
+    state,
+    CONFIG
+  );
+  assert.equal(extra.type, "extra");
+  applyLlmOverride(decisions[1], { classification: "duplicate", match: 1 }, state, CONFIG);
+  const reza = state.handles.get("youtube::رضا");
+  assert.equal(reza.open, extra.block);
+});
+
+test("later paraphrase still has the earlier question in the 30-deep context", () => {
+  const { decisions } = runStream(STREAMS.semanticPerfumeFasting);
+  assert.ok(decisions[1].recentQuestions.length >= 1);
+  assert.ok(decisions[1].recentQuestions[0].matchKey);
+});
+
+// =====================================================================
+group("parseLlmResponse");
+
+test("accepts duplicate with match index", () => {
+  const parsed = parseLlmResponse('{"classification":"duplicate","match":2}');
+  assert.equal(parsed.classification, "duplicate");
+  assert.equal(parsed.match, 2);
+});
+
+test("accepts continuation / extra / primary", () => {
+  assert.equal(parseLlmResponse('{"classification":"continuation"}').classification, "continuation");
+  assert.equal(parseLlmResponse('{"classification":"extra"}').classification, "extra");
+  assert.equal(parseLlmResponse('{"classification":"primary"}').classification, "primary");
+});
+
+test("rejects garbage", () => {
+  assert.equal(parseLlmResponse("not json"), null);
+  assert.equal(parseLlmResponse('{"classification":"maybe"}'), null);
 });
 
 // =====================================================================
