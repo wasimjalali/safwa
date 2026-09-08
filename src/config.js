@@ -93,13 +93,9 @@ export const CONFIG = {
   // Must stay false in v1: ambiguous cases are marked, never hidden.
   AUTO_HIDE_ANYTHING_AMBIGUOUS: false,
 
-  // The teacher wants a clean feed: one question per person, no repeats, nothing
-  // extra to read. When true, a confirmed second question from the same handle
-  // (and any over-the-cap continuation fragment) is collapsed out of the feed
-  // instead of just dimmed. The data is retained in state and the popup OFF
-  // switch reveals StreamYard's full native feed, so nothing is ever destroyed.
-  // Set to false to keep them visible-but-dimmed instead (the old v1 behavior).
-  HIDE_EXTRA_QUESTIONS: true,
+  // Must stay false in v1: a flagged second question might be a continuation
+  // the detector missed, so it remains visible, dimmed and badged.
+  HIDE_EXTRA_QUESTIONS: false,
 
   // Safety lever for the live-test phase. When true, an extra that lands INSIDE
   // the continuation window is only DIMMED, not hidden, because it MIGHT be a
@@ -163,19 +159,20 @@ export const STORAGE_KEYS = {
 };
 
 /*
- * StreamYard DOM selectors (spec Section 12). Research-based best guesses,
- * shipped ENABLED for launch: boot-time discovery validates that the container
- * it attaches to actually holds comment rows (dom.js) and every read fails
- * safe. If StreamYard's layout differs from these guesses, the extension logs
+ * StreamYard DOM selectors (spec Section 12). Confirmed against a live studio
+ * comment feed. Boot-time discovery validates that the container it attaches
+ * to actually holds comment rows (dom.js) and every read fails safe. If
+ * StreamYard's layout changes, the extension logs
  * one clear [Ṣafwa] warning and leaves the native feed untouched - it can
  * never corrupt it. To re-disable, set CONFIRMED: false.
  * Selectors are language-agnostic, so Dari support does not affect this block.
  */
 export const SELECTORS = {
   CONFIRMED: true,
-  commentContainer: '[data-testid="comments-list"], [class*="commentsList"]',
-  commentNode: '[data-testid="comment"], [class*="comment_"], li[class*="comment"]',
-  authorHandle: '[data-testid="comment-author"], [class*="author"], [class*="name"]',
-  text: '[data-testid="comment-text"], [class*="commentText"], [class*="message"]',
-  platformIndicator: '[data-testid="comment-platform"], [class*="platform"], [class*="source"] img',
+  commentContainer:
+    '#broadcast-aside-content-comments, [role="tabpanel"][aria-label="broadcast-aside-content-comments"]',
+  commentNode: 'li[class*="VirtualScroller__ScrollItemWrapper"]',
+  authorHandle: '[class*="PlatformCommentShell__NameText"]',
+  text: '[class*="PlatformCommentShell__ContentSpan"]',
+  platformIndicator: 'img[class*="DestinationAvatar__StyledPlatformIcon"]',
 };

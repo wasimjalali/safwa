@@ -12,11 +12,7 @@
  *                            ONLY if AUTO_COLLAPSE_EXACT_DUPLICATES.
  *   - Fuzzy / near dup     -> marked + dimmed, NEVER hidden.
  *   - Continuation merge   -> "joined" badge, both fragments stay visible.
- *   - Extra (2nd) question -> collapsed (hidden) whenever HIDE_EXTRA_QUESTIONS, so
- *                            the teacher never reads a second question. Opt-in
- *                            exception (DIM_IN_WINDOW_EXTRAS): an extra INSIDE the
- *                            continuation window is dimmed instead of hidden, as a
- *                            safety net against an undetected continuation.
+ *   - Extra (2nd) question -> marked + dimmed, NEVER hidden in v1.
  *
  * Hiding is reversible: collapsed rows keep their data in state and the popup
  * OFF switch restores StreamYard's full native feed. Fuzzy duplicates are still
@@ -26,6 +22,17 @@
 const ANNOTATED_ATTR = "data-safwa-annotated";
 const COUNT_CLASS = "safwa-count";
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+const collapsedCopies = new Map();
+
+// Hiding is safe only while another copy remains represented on screen.
+export function revealOrphanedDuplicates(changedAnchor = null) {
+  for (const [copy, anchor] of collapsedCopies) {
+    if (!copy.isConnected || !anchor.isConnected || anchor === changedAnchor) {
+      copy.classList.remove("safwa-collapsed");
+      collapsedCopies.delete(copy);
+    }
+  }
+}
 
 function digits(n, persian) {
   return persian ? String(n).replace(/[0-9]/g, (d) => FA_DIGITS[d]) : String(n);
@@ -71,6 +78,8 @@ export function render(decision, config) {
   const node = decision.comment?.el ?? null;
   if (!node) return;
   const dir = config.UI_DIRECTION;
+  revealOrphanedDuplicates(node);
+  collapsedCopies.delete(node);
 
   // Idempotency: a row can be re-annotated after a container re-render, and its
   // new decision may differ (state was rebuilt). Clear previous annotations so a
@@ -110,6 +119,7 @@ export function render(decision, config) {
       const isExact = decision.kind === "exact";
       if (isExact && config.AUTO_COLLAPSE_EXACT_DUPLICATES && !config.AUTO_HIDE_ANYTHING_AMBIGUOUS) {
         node.classList.add("safwa-collapsed"); // data retained in state; only hidden
+        collapsedCopies.set(node, original);
       } else {
         node.classList.add("safwa-dim");
         ensureBadge(node, "dup", config.LABELS.possibleDuplicate, dir);
@@ -118,11 +128,9 @@ export function render(decision, config) {
     }
 
     case "extra": {
-      // By default EVERY extra (a second question, or an over-the-cap fragment)
-      // is hidden, so the teacher never spends time on it. The only exception is
-      // opt-in: with DIM_IN_WINDOW_EXTRAS, an extra that arrived INSIDE the
-      // continuation window is dimmed instead of hidden, because it might be a
-      // continuation we failed to detect (cost-asymmetry safety). Off by default.
+      // In v1, HIDE_EXTRA_QUESTIONS stays false: every flagged extra remains
+      // visible, dimmed and badged because it might be a missed continuation.
+      // The window guard remains as defense in depth if that flag changes later.
       const keepVisible =
         !config.HIDE_EXTRA_QUESTIONS ||
         (config.DIM_IN_WINDOW_EXTRAS && decision.withinWindow);

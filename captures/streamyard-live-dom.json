@@ -1,0 +1,88 @@
+{
+  "source": "Live DevTools capture supplied by the field operator",
+  "capturedOn": "2026-09-08",
+  "purpose": "Sanitized ground truth for the StreamYard comments DOM used by Safwa v1.0.1",
+  "sanitization": "Session data, page identifiers and image URLs are omitted. Original DOM tags, stable component class tokens, accessibility attributes and test comment text are retained.",
+  "runtimeSelectorLocation": "src/config.js",
+  "environment": {
+    "commentsInTopDocument": true,
+    "openShadowRootCount": 0,
+    "iframeCountInsideCommentsPanel": 0,
+    "spaNavigationObserved": true,
+    "contentScriptLoadedBeforeStudioRoute": true
+  },
+  "panel": {
+    "tag": "div",
+    "id": "broadcast-aside-content-comments",
+    "role": "tabpanel",
+    "ariaLabel": "broadcast-aside-content-comments",
+    "classTokens": [
+      "RightAside__StyledContent-sc-1mbkc3o-2",
+      "hUSrpc"
+    ]
+  },
+  "list": {
+    "tag": "ul",
+    "observedRowCount": 10,
+    "validCommentCount": 9,
+    "blankVirtualRowCount": 1
+  },
+  "commentRow": {
+    "tag": "li",
+    "classTokens": [
+      "VirtualScroller__ScrollItemWrapper-sc-1qhj8y1-4",
+      "jFSJrD"
+    ],
+    "positioning": "absolute",
+    "mayBeRecycledByVirtualScroller": true
+  },
+  "author": {
+    "tag": "span",
+    "classTokens": [
+      "Text__StyledText-sc-1qjs20c-0",
+      "PlatformCommentShell__BoldText-sc-reu44y-11",
+      "PlatformCommentShell__NameText-sc-reu44y-12"
+    ],
+    "sampleText": "@iamwasim.jalali"
+  },
+  "commentText": {
+    "tag": "span",
+    "classTokens": [
+      "PlatformCommentShell__ContentSpan-sc-reu44y-22",
+      "kEUTFx"
+    ],
+    "sampleText": "سلام استاد، آیا نماز در سفر قصر خوانده میشود؟"
+  },
+  "platformIndicator": {
+    "tag": "img",
+    "classTokens": [
+      "YouTubeSquare__Img-sc-14m6t78-0",
+      "PlatformIcon__youtube-sc-2o70a5-16",
+      "DestinationAvatar__StyledPlatformIcon-sc-1urbuch-1"
+    ],
+    "alt": "Youtube",
+    "distinguishedFromProfileAvatar": true
+  },
+  "profileAvatar": {
+    "tag": "img",
+    "classTokens": [
+      "Avatar__Image-sc-2xga25-2"
+    ],
+    "alt": "",
+    "warning": "This is the viewer profile image, not the platform indicator."
+  },
+  "rowControls": [
+    {
+      "tag": "button",
+      "dataTestId": "show-comment-button"
+    },
+    {
+      "tag": "button",
+      "ariaLabel": "Comment actions"
+    },
+    {
+      "tag": "button",
+      "ariaLabel": "Star comment"
+    }
+  ]
+}
