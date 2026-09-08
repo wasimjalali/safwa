@@ -128,4 +128,23 @@ render(
 );
 assert.equal(greetShow.has("safwa-collapsed"), false, "teacher toggle can keep greetings visible");
 
+const askedClasses = new Set();
+const askedNode = {
+  classList: {
+    add: (...names) => names.forEach((name) => askedClasses.add(name)),
+    remove: (...names) => names.forEach((name) => askedClasses.delete(name)),
+  },
+  appendChild() {},
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  setAttribute() {},
+};
+render({ type: "primary", comment: { el: askedNode } }, CONFIG);
+assert.equal(
+  askedClasses.has("safwa-collapsed"),
+  false,
+  "a question that starts with a greeting must stay visible"
+);
+assert.equal(askedClasses.has("safwa-primary"), true);
+
 console.log("ui.js human-in-the-loop safety regression: PASS");

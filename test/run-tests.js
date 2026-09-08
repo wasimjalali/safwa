@@ -12,7 +12,7 @@ import { CONFIG, applyStoredSettings, readStoredSettings } from "../src/config.j
 import { normalize } from "../src/normalize.js";
 import { createState, identityKey } from "../src/state.js";
 import { jaccard } from "../src/dedup.js";
-import { processComment, applyLlmOverride } from "../src/grouping.js";
+import { processComment, applyLlmOverride, maybeCourtesy } from "../src/grouping.js";
 import { parseLlmResponse } from "../src/llm-classifier.js";
 import { STREAMS, comment } from "./mock-comments.js";
 
@@ -363,6 +363,33 @@ test("a bare greeting normalizes to isGreetingOnly", () => {
   assert.equal(normalize("سلام استاد، حکم روزه چیست؟", CONFIG).isGreetingOnly, false);
 });
 
+test("a question that starts with a greeting stays a visible primary", () => {
+  const withMark = processComment(
+    comment("یونس", "youtube", "سلام علیکم حکم روزه در سفر چیست؟", 0),
+    createState(),
+    CONFIG
+  );
+  assert.equal(withMark.type, "primary");
+  assert.notEqual(withMark.hide, true);
+  assert.equal(withMark.comment.displayText.includes("سلام علیکم"), true);
+
+  const noMark = processComment(
+    comment("یونس", "youtube", "اسلام علیکم ورحمت الله استاد درباره قرعه کشی پول پرداخت کنی جواز دارد", 0),
+    createState(),
+    CONFIG
+  );
+  assert.equal(noMark.type, "primary");
+  assert.equal(maybeCourtesy(noMark.comment.displayText, CONFIG), false);
+});
+
+test("thanks in the same line does not hide a leftover question", () => {
+  const text = "سلام علیکم ممنون طلا زکات دارد";
+  assert.equal(maybeCourtesy(text, CONFIG), false);
+  const decision = processComment(comment("علی", "youtube", text, 0), createState(), CONFIG);
+  assert.equal(decision.type, "primary");
+  assert.notEqual(decision.reviewKind, "courtesy");
+});
+
 // =====================================================================
 group("Real-session regressions (found by replaying a live YouTube chat)");
 
@@ -559,6 +586,25 @@ test("applyStoredSettings honors hiding greetings off", () => {
   const config = { ...CONFIG };
   applyStoredSettings(config, readStoredSettings({ safwaHideGreetings: false }));
   assert.equal(config.HIDE_GREETINGS, false);
+});
+
+test("all five teacher flags reach the runtime fields the pipeline reads", () => {
+  const config = { ...CONFIG };
+  applyStoredSettings(
+    config,
+    readStoredSettings({
+      safwaCollapseDuplicates: false,
+      safwaHideExtras: false,
+      safwaJoinContinuations: false,
+      safwaHideGreetings: false,
+      safwaLlmEnabled: false,
+    })
+  );
+  assert.equal(config.AUTO_COLLAPSE_EXACT_DUPLICATES, false);
+  assert.equal(config.HIDE_CONFIRMED_EXTRAS, false);
+  assert.equal(config.JOIN_CONTINUATIONS, false);
+  assert.equal(config.HIDE_GREETINGS, false);
+  assert.equal(config.LLM_ENABLED, false);
 });
 
 test("JOIN_CONTINUATIONS false: LLM continuation does not merge", () => {
