@@ -33,9 +33,18 @@ function hasCourtesyHint(foldedKey, hints) {
   return hints.some((hint) => padded.includes(` ${hint} `));
 }
 
+function leftoverIsBlessingOnly(tokens, config) {
+  const allowed = new Set([
+    ...(config.COURTESY_HINTS ?? []),
+    ...(config.COURTESY_LEFTOVER_WORDS ?? []),
+  ]);
+  return tokens.length > 0 && tokens.every((token) => allowed.has(token));
+}
+
 /**
- * Regex-uncertain courtesy: leftover text after honorific strip, no question
- * mark or question stem, and a thanks/blessing hint in the folded line.
+ * Regex-uncertain courtesy: leftover after honorific strip is only blessing
+ * amplifiers (تعالی, خیرا, …), no question mark or question stem. A thanks
+ * word in a line that still has real leftover content is a question.
  * Never enough to hide on its own — the LLM must confirm.
  */
 export function maybeCourtesy(displayText, config) {
@@ -48,6 +57,7 @@ export function maybeCourtesy(displayText, config) {
   }
   const stems = config.QUESTION_STEMS ?? [];
   if (leftover.some((token) => stems.includes(token))) return false;
+  if (!leftoverIsBlessingOnly(leftover, config)) return false;
   return hasCourtesyHint(foldedKey || matchKey, config.COURTESY_HINTS);
 }
 

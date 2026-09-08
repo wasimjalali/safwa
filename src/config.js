@@ -94,6 +94,12 @@ export const CONFIG = {
     "چند", "کدام", "میشود", "میشه", "سوال",
   ],
   COURTESY_MAX_TOKENS: 6,
+  // Leftover tokens that may follow a stripped blessing (جزاکم الله تعالی).
+  // Anything else in the leftover is treated as a question, even if the line
+  // also said thanks.
+  COURTESY_LEFTOVER_WORDS: [
+    "تعالی", "عالمین", "خیرا", "کثیرا", "کثیر", "فیکم", "احسن", "الجزا",
+  ],
 
   // --- Duplicate detection (dedup.js, spec Section 9) ---
 
@@ -204,6 +210,7 @@ export const CONFIG = {
     settingHideGreetings: "پنهان کردن سلام و دعا",
     settingHideGreetingsOn: [
       "سلام، تشکر و دعا که سوال نیستند از ستون برداشته می‌شوند.",
+      "اگر همان پیام سوال هم داشته باشد، سوال می‌ماند.",
     ],
     settingHideGreetingsOff: [
       "سلام و دعا هم در ستون می‌مانند.",
