@@ -30,7 +30,7 @@ A Manifest V3 Chrome extension that cleans a StreamYard live Q&A comment feed in
 ## Out of scope (do not build)
 
 - Cross-platform identity linking.
-- A settings UI.
+- Engineer knobs in the popup (Jaccard, windows, endpoints). Teacher settings are the four live toggles plus session reset.
 
 ## v2: LLM semantic layer (combo architecture)
 

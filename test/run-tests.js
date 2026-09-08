@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 
-import { CONFIG } from "../src/config.js";
+import { CONFIG, applyStoredSettings, readStoredSettings } from "../src/config.js";
 import { normalize } from "../src/normalize.js";
 import { createState, identityKey } from "../src/state.js";
 import { jaccard } from "../src/dedup.js";
@@ -441,6 +441,61 @@ test("greeting does not go to the LLM", () => {
   const { decisions } = runStream(STREAMS.greetingThenQuestion);
   assert.equal(decisions[0].type, "greeting");
   assert.equal(decisions[0].needsLlmReview, undefined);
+});
+
+test("JOIN_CONTINUATIONS false: a cued split is not merged", () => {
+  const config = { ...CONFIG, JOIN_CONTINUATIONS: false };
+  const state = createState();
+  const decisions = STREAMS.splitQuestion.map((c) => processComment({ ...c }, state, config));
+  assert.equal(decisions[0].type, "primary");
+  assert.equal(decisions[1].type, "extra");
+});
+
+test("readStoredSettings defaults every flag on when storage is empty", () => {
+  const settings = readStoredSettings({});
+  assert.equal(settings.enabled, true);
+  assert.equal(settings.collapseDuplicates, true);
+  assert.equal(settings.hideExtras, true);
+  assert.equal(settings.joinContinuations, true);
+  assert.equal(settings.llmEnabled, true);
+});
+
+test("readStoredSettings honors an explicit false", () => {
+  const settings = readStoredSettings({ safwaLlmEnabled: false, safwaHideExtras: false });
+  assert.equal(settings.llmEnabled, false);
+  assert.equal(settings.hideExtras, false);
+  assert.equal(settings.collapseDuplicates, true);
+});
+
+test("applyStoredSettings writes teacher flags onto a runtime config", () => {
+  const config = { ...CONFIG };
+  applyStoredSettings(
+    config,
+    readStoredSettings({ safwaLlmEnabled: false, safwaJoinContinuations: false })
+  );
+  assert.equal(config.LLM_ENABLED, false);
+  assert.equal(config.JOIN_CONTINUATIONS, false);
+  assert.equal(config.AUTO_COLLAPSE_EXACT_DUPLICATES, true);
+  assert.equal(config.HIDE_CONFIRMED_EXTRAS, true);
+});
+
+test("JOIN_CONTINUATIONS false: LLM continuation does not merge", () => {
+  const config = { ...CONFIG, JOIN_CONTINUATIONS: false };
+  const state = createState();
+  const first = processComment(
+    comment("علی", "youtube", "حکم نماز برای مسافر چیست؟", 0),
+    state,
+    config
+  );
+  const second = processComment(
+    comment("علی", "youtube", "و آیا شکسته خواندن واجب است؟", 4000),
+    state,
+    config
+  );
+  const next = applyLlmOverride(second, { classification: "continuation" }, state, config);
+  assert.equal(first.type, "primary");
+  assert.equal(second.type, "extra");
+  assert.equal(next.type, "extra");
 });
 
 // =====================================================================

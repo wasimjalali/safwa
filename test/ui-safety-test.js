@@ -74,4 +74,27 @@ render(
 assert.equal(hiddenClasses.has("safwa-collapsed"), true, "expected a confirmed extra to be hidden");
 assert.equal(hiddenBadges.length, 0, "expected no second-question badge on a hidden extra");
 
+const keepClasses = new Set();
+const keepBadges = [];
+const keepNode = {
+  classList: {
+    add: (...names) => names.forEach((name) => keepClasses.add(name)),
+    remove: (...names) => names.forEach((name) => keepClasses.delete(name)),
+  },
+  appendChild: (badge) => keepBadges.push(badge),
+  querySelector: () => null,
+  querySelectorAll: (selector) => (selector === ".safwa-badge" ? [...keepBadges] : []),
+  setAttribute: () => {},
+};
+render(
+  {
+    type: "extra",
+    hide: true,
+    comment: { el: keepNode },
+  },
+  { ...CONFIG, HIDE_CONFIRMED_EXTRAS: false }
+);
+assert.equal(keepClasses.has("safwa-collapsed"), false, "teacher toggle can keep confirmed extras visible");
+assert.equal(keepClasses.has("safwa-dim"), true);
+
 console.log("ui.js human-in-the-loop safety regression: PASS");

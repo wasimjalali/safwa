@@ -52,8 +52,19 @@
     import(url("src/llm-classifier.js")),
   ])
     .then(([configMod, dom, stateMod, grouping, ui, llm]) => {
+      const runtimeConfig = Object.assign({}, configMod.CONFIG);
       wireEnabledToggle(configMod.STORAGE_KEYS);
-      boot(configMod.CONFIG, dom, stateMod, grouping, ui, llm);
+      boot(
+        runtimeConfig,
+        dom,
+        stateMod,
+        grouping,
+        ui,
+        llm,
+        configMod.STORAGE_KEYS,
+        configMod.readStoredSettings,
+        configMod.applyStoredSettings
+      );
     })
     .catch((err) => {
       console.warn(`${TAG} failed to load modules; doing nothing (fail-safe).`, err);
@@ -91,7 +102,7 @@
     }
   }
 
-  function boot(CONFIG, dom, stateMod, grouping, ui, llm) {
+  function boot(CONFIG, dom, stateMod, grouping, ui, llm, STORAGE_KEYS, readStoredSettings, applyStoredSettings) {
     if (!dom.selectorsConfirmed()) {
       console.warn(
         `${TAG} StreamYard selectors are unconfirmed (SELECTORS.CONFIRMED is false ` +
@@ -107,6 +118,8 @@
     const seenFingerprints = new WeakMap();
     const seenComments = new WeakMap();
     let scheduled = false;
+    let observedContainer = null;
+    let sessionGen = 0;
 
     const schedule = () => {
       if (scheduled) return;
@@ -157,7 +170,7 @@
           // Regex-uncertain cases: LLM confirms before we hide or count.
           // Timeout leaves the regex look in place (never hide a maybe).
           if (decision.needsLlmReview && CONFIG.LLM_ENABLED) {
-            llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm, grouping, state, ui);
+            llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm, grouping, state, ui, sessionGen);
           }
         } catch (err) {
           // One bad node must never break the rest of the feed.
@@ -171,7 +184,7 @@
      * Runs AFTER the regex render so the feed is never blocked. Guard against
      * a recycled virtual-scroller row before mutating state.
      */
-    function llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm, grouping, state, ui) {
+    function llmReview(node, comment, decision, fingerprint, seenFingerprints, CONFIG, llm, grouping, state, ui, gen) {
       llm
         .classifyComment(
           comment,
@@ -181,6 +194,7 @@
         )
         .then((result) => {
           if (!result) return;
+          if (gen !== sessionGen) return;
           if (!node.isConnected) return;
           if (seenFingerprints.get(node) !== fingerprint) return;
           const next = grouping.applyLlmOverride(decision, result, state, CONFIG);
@@ -200,7 +214,24 @@
         });
     }
 
+    function rebuild(reason) {
+      sessionGen += 1;
+      state = stateMod.createState();
+      const container = observedContainer;
+      if (!container?.isConnected) return;
+      for (const node of dom.collectCommentNodes(container)) {
+        seenFingerprints.delete(node);
+        seenComments.delete(node);
+        node.removeAttribute(SEEN_ATTR);
+        pending.add(node);
+      }
+      schedule();
+      console.log(`${TAG} rebuilt the feed (${reason}).`);
+    }
+
     const attach = (container) => {
+      if (observedContainer === container) return;
+      observedContainer = container;
       console.log(`${TAG} comments container found; observing for new comments.`);
 
       // Seed state from comments already on screen, then watch for new ones.
@@ -247,6 +278,8 @@
         clearInterval(watchdog);
         observer.disconnect();
         pending.clear();
+        observedContainer = null;
+        sessionGen += 1;
         state = stateMod.createState();
         console.warn(`${TAG} comments container left the DOM (StreamYard re-render); re-attaching.`);
         attempts = 0;
@@ -280,6 +313,38 @@
         attempts < CONTAINER_POLL_MAX ? CONTAINER_POLL_MS : CONTAINER_RECHECK_MS
       );
     };
-    tryFind();
+    try {
+      chrome.storage.local
+        .get(null)
+        .then((items) => {
+          applyStoredSettings(CONFIG, readStoredSettings(items));
+          tryFind();
+        })
+        .catch((err) => {
+          console.warn(`${TAG} could not read settings; using defaults.`, err);
+          tryFind();
+        });
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local") return;
+        if (STORAGE_KEYS.resetAt in changes) {
+          rebuild("reset");
+          return;
+        }
+        const settingKeys = [
+          STORAGE_KEYS.collapseDuplicates,
+          STORAGE_KEYS.hideExtras,
+          STORAGE_KEYS.joinContinuations,
+          STORAGE_KEYS.llmEnabled,
+        ];
+        if (!settingKeys.some((key) => key in changes)) return;
+        chrome.storage.local.get(null).then((items) => {
+          applyStoredSettings(CONFIG, readStoredSettings(items));
+          rebuild("settings");
+        });
+      });
+    } catch (err) {
+      console.warn(`${TAG} settings storage unavailable; using defaults.`, err);
+      tryFind();
+    }
   }
 })();

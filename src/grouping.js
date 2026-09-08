@@ -249,7 +249,11 @@ export function processComment(comment, state, config) {
     }
   }
 
-  if (!atFragmentCap && isContinuation(record.open, comment, config)) {
+  if (
+    config.JOIN_CONTINUATIONS !== false &&
+    !atFragmentCap &&
+    isContinuation(record.open, comment, config)
+  ) {
     mergeContinuation(record.open, comment);
     record.lastBlock = record.open;
     if (record.open.status === "extra") {
@@ -362,7 +366,7 @@ export function applyLlmOverride(decision, llmResult, state, config) {
       };
     }
 
-    if (classification === "continuation" && canMergeMore(previousBlock, config) && !previousBlock?.hideConfirmed) {
+    if (classification === "continuation" && config.JOIN_CONTINUATIONS !== false && canMergeMore(previousBlock, config) && !previousBlock?.hideConfirmed) {
       mergeContinuation(previousBlock, decision.comment);
       setOpen(record, previousBlock);
       return { type: "continuation", comment: decision.comment, block: previousBlock };
@@ -370,10 +374,11 @@ export function applyLlmOverride(decision, llmResult, state, config) {
 
     if (classification === "extra" && record.hasPrimaryQuestion) {
       const block = openBlock(decision.comment, "extra");
-      block.hideConfirmed = true;
+      const hide = config.HIDE_CONFIRMED_EXTRAS !== false;
+      block.hideConfirmed = hide;
       setOpen(record, block);
       registerSignature(decision.comment, state, config);
-      return { type: "extra", comment: decision.comment, block, hide: true, withinWindow: true };
+      return { type: "extra", comment: decision.comment, block, hide, withinWindow: true };
     }
 
     if (record.hasPrimaryQuestion) {
@@ -391,7 +396,11 @@ export function applyLlmOverride(decision, llmResult, state, config) {
 
   if (decision.type === "extra") {
     if (classification === "continuation") {
-      if (previousBlock?.hideConfirmed || !canMergeMore(previousBlock, config)) {
+      if (
+        config.JOIN_CONTINUATIONS === false ||
+        previousBlock?.hideConfirmed ||
+        !canMergeMore(previousBlock, config)
+      ) {
         return decision;
       }
       unregisterSignature(decision.comment.matchKey, state);
@@ -457,14 +466,15 @@ export function applyLlmOverride(decision, llmResult, state, config) {
           count: entry.count,
         };
       }
-      decision.block.hideConfirmed = true;
+      const hide = config.HIDE_CONFIRMED_EXTRAS !== false;
+      decision.block.hideConfirmed = hide;
       return {
         type: "extra",
         comment: decision.comment,
         block: decision.block,
-        hide: true,
+        hide,
         withinWindow: decision.withinWindow,
-        alsoRender: hideExtraFragments(decision.block, decision.comment),
+        alsoRender: hide ? hideExtraFragments(decision.block, decision.comment) : [],
       };
     }
   }

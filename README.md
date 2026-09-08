@@ -123,7 +123,7 @@ The badges render right-to-left. Counts show Western digits by default for legib
 
 ## Tuning (Phase 6)
 
-Every knob lives in `src/config.js`. There is no settings UI in v1; you edit the file and reload the extension. Tune against a real or recorded session. Symptom to knob:
+Every live-show toggle lives in the popup. Engineer knobs still live in `src/config.js`. Tune those against a real or recorded session. Symptom to knob:
 
 | You see... | Turn this knob |
 | --- | --- |
@@ -142,7 +142,7 @@ Every knob lives in `src/config.js`. There is no settings UI in v1; you edit the
 - ~~Semantic deduplication (two people asking the same thing in totally different words). Needs an LLM/embedding call. Deferred to v2.~~ **Added in v2 (see below).**
 - Cross-platform identity linking. "Ahmad" on YouTube and "Ahmad" on Facebook cannot be reliably confirmed as the same person. The one-question rule applies within the same platform and handle only.
 - Any auto-hiding of ambiguous cases. Marking only.
-- A settings UI. Config lives in `config.js`.
+- Engineer knobs (windows, thresholds, endpoints). Teacher settings are the four popup toggles plus session reset.
 
 ## v2: LLM Semantic Layer (combo architecture)
 

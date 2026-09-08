@@ -138,7 +138,7 @@ export function render(decision, config) {
       // are a genuine second question. Confirmed extras are hidden with no badge.
       // Timeout leaves the dimmed row in place so a missed continuation is not
       // deleted.
-      if (decision.hide) {
+      if (decision.hide && config.HIDE_CONFIRMED_EXTRAS !== false) {
         node.classList.add("safwa-collapsed");
       } else {
         node.classList.add("safwa-dim");

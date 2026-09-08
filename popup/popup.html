@@ -1,9 +1,7 @@
 <!DOCTYPE html>
 <!--
-  popup.html - the bar that opens when the Ṣafwa icon is clicked. One job:
-  turn the filter on or off. The state is persisted in chrome.storage.local;
-  the content script listens and applies it to the live feed instantly.
-  All visible strings come from CONFIG.LABELS (popup.js fills them in).
+  popup.html - the bar that opens when the Ṣafwa icon is clicked.
+  Master on/off, then teacher settings with Dari help on each row.
 -->
 <html lang="fa" dir="rtl">
   <head>
@@ -23,6 +21,25 @@
       </button>
     </header>
     <p id="hint" class="hint"></p>
+
+    <section class="settings" aria-labelledby="settings-heading">
+      <h2 id="settings-heading" class="settings__heading"></h2>
+      <div id="settings-list"></div>
+
+      <div class="reset-row">
+        <button type="button" id="reset" class="reset"></button>
+        <button
+          type="button"
+          class="help"
+          data-help="reset"
+          aria-expanded="false"
+          aria-controls="explain-reset"
+        ></button>
+      </div>
+      <div id="explain-reset" class="explain" hidden></div>
+      <p id="reset-status" class="reset-status" hidden></p>
+    </section>
+
     <footer class="footer">
       <span id="footer-label"></span>
       <span id="version" class="footer__version"></span>

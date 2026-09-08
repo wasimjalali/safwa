@@ -90,8 +90,12 @@ export const CONFIG = {
   // --- UI behavior (ui.js, spec Section 10) ---
 
   AUTO_COLLAPSE_EXACT_DUPLICATES: true,
-  // Must stay false in v1: ambiguous cases are marked, never hidden.
+  // Must stay false: ambiguous cases are marked, never hidden until confirmed.
   AUTO_HIDE_ANYTHING_AMBIGUOUS: false,
+
+  // Teacher settings (popup). Defaults are the live-show recommendations.
+  JOIN_CONTINUATIONS: true,
+  HIDE_CONFIRMED_EXTRAS: true,
 
   // Must stay false in v1: a flagged second question might be a continuation
   // the detector missed, so it remains visible, dimmed and badged.
@@ -145,17 +149,92 @@ export const CONFIG = {
     popupHintOn: "سوال‌های تکراری جمع می‌شوند و سوال دوم پنهان می‌شود",
     popupHintOff: "ستون نظرات بدون هیچ تغییری نمایش داده می‌شود",
     popupFooter: "روی StreamYard کار می‌کند",       // "works on StreamYard"
+
+    settingsHeading: "تنظیمات",
+    settingHelp: "توضیح",
+    settingOn: "اگر روشن باشد",
+    settingOff: "اگر خاموش باشد",
+    settingWhat: "چه می‌کند",
+    settingNot: "چه نمی‌کند",
+
+    settingCollapse: "جمع کردن سوال‌های تکراری",
+    settingCollapseOn: [
+      "چند نفر یک سوال را بپرسند، فقط یکی در ستون می‌ماند.",
+      "روی همان نوشته می‌شود چند بار پرسیده شد.",
+    ],
+    settingCollapseOff: [
+      "همهٔ همان سوال‌ها در ستون می‌مانند.",
+      "هیچ ردیفی به‌خاطر تکرار پنهان نمی‌شود.",
+    ],
+
+    settingHideExtra: "پنهان کردن سوال دوم هر نفر",
+    settingHideExtraOn: [
+      "اگر یک نفر سوال جداگانهٔ دیگری بفرستد، بعد از تأیید از ستون برداشته می‌شود.",
+    ],
+    settingHideExtraOff: [
+      "سوال دوم همان‌جا می‌ماند.",
+      "فقط کم‌رنگ می‌شود تا مشخص باشد سوال اول نیست.",
+    ],
+
+    settingJoin: "وصل کردن سوال دو تکه",
+    settingJoinOn: "اگر یک سوال در دو پیام پشت‌سرهم بیاید، به هم وصل می‌شوند و هر دو دیده می‌شوند.",
+    settingJoinOff: "هر پیام جدا می‌ماند، حتی اگر ادامهٔ همان حرف باشد.",
+
+    settingLlm: "فهمیدن معنی یکسان",
+    settingLlmOn: [
+      "اگر دو نفر یک چیز را با کلمه‌های مختلف بپرسند، یکی شمرده می‌شود.",
+      "سوال دو تکه بدون کلمهٔ «ادامه» هم می‌تواند وصل شود.",
+    ],
+    settingLlmOff: [
+      "فقط سوال‌هایی که متن‌شان خیلی شبیه است جمع می‌شوند.",
+      "معنی یکسان با کلمه‌های مختلف دیگر با هم مقایسه نمی‌شود.",
+    ],
+
+    resetSession: "شروع تازه برای این پخش",
+    resetDone: "حافظهٔ این پخش پاک شد.",
+    resetWhat: [
+      "صفوة سوال‌هایی را که تا حالا در این پخش دیده از یاد می‌برد.",
+      "از الان از نو می‌شمارد.",
+    ],
+    resetNot: [
+      "پیام‌های استریم‌یارد پاک نمی‌شوند.",
+      "فقط حافظهٔ صفوة صفر می‌شود.",
+    ],
   },
 };
 
 /*
  * chrome.storage keys shared by the popup and the content script. The popup
  * writes, the content script reads + listens. Default is enabled; only an
- * explicit `false` turns the filter off.
+ * explicit `false` turns a flag off.
  */
 export const STORAGE_KEYS = {
   enabled: "safwaEnabled",
+  collapseDuplicates: "safwaCollapseDuplicates",
+  hideExtras: "safwaHideExtras",
+  joinContinuations: "safwaJoinContinuations",
+  llmEnabled: "safwaLlmEnabled",
+  resetAt: "safwaResetAt",
 };
+
+/** Read teacher settings from chrome.storage.local items. Missing keys default on. */
+export function readStoredSettings(items = {}) {
+  return {
+    enabled: items[STORAGE_KEYS.enabled] !== false,
+    collapseDuplicates: items[STORAGE_KEYS.collapseDuplicates] !== false,
+    hideExtras: items[STORAGE_KEYS.hideExtras] !== false,
+    joinContinuations: items[STORAGE_KEYS.joinContinuations] !== false,
+    llmEnabled: items[STORAGE_KEYS.llmEnabled] !== false,
+  };
+}
+
+/** Overlay teacher settings onto a runtime CONFIG object. */
+export function applyStoredSettings(config, settings) {
+  config.AUTO_COLLAPSE_EXACT_DUPLICATES = settings.collapseDuplicates;
+  config.HIDE_CONFIRMED_EXTRAS = settings.hideExtras;
+  config.JOIN_CONTINUATIONS = settings.joinContinuations;
+  config.LLM_ENABLED = settings.llmEnabled;
+}
 
 /*
  * StreamYard DOM selectors (spec Section 12). Confirmed against a live studio
