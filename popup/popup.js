@@ -99,6 +99,7 @@ function showRoom(room) {
   roomLive.hidden = !live;
   roomSettings.hidden = live;
   closeExplains(null);
+  window.dispatchEvent(new Event("safwa-roomchange"));
 }
 
 function paintMaster(enabled) {
@@ -141,6 +142,8 @@ function toggleExplain(button) {
   closeExplains(open ? null : id);
   button.setAttribute("aria-expanded", String(!open));
   panel.hidden = open;
+  if (!open) panel.scrollIntoView({ block: "nearest" });
+  window.dispatchEvent(new Event("safwa-roomchange"));
 }
 
 function buildRow(spec) {

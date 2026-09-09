@@ -54,7 +54,7 @@
       iframe {
         display: block;
         width: 320px;
-        height: 360px;
+        height: 1px;
         border: 0;
       }
     </style>
@@ -66,29 +66,59 @@
       <div class="frame">
         <iframe
           id="pop"
-          src="../popup/popup.html"
+          src="../popup/popup.html?v=helpfix3"
           title="Ṣafwa popup"
         ></iframe>
       </div>
     </main>
     <script>
       const frame = document.getElementById("pop");
+      let wired = false;
       function fit() {
         const doc = frame.contentDocument;
-        if (!doc?.documentElement) return;
-        frame.style.height = `${doc.documentElement.scrollHeight}px`;
+        if (!doc?.body) return;
+        frame.style.height = "800px";
+        const footer = doc.querySelector(".footer");
+        const bottom = footer
+          ? Math.ceil(footer.getBoundingClientRect().bottom)
+          : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+        frame.style.height = `${bottom}px`;
       }
-      frame.addEventListener("load", () => {
-        fit();
+      function fitSoon() {
+        requestAnimationFrame(() => requestAnimationFrame(fit));
+      }
+      function wire() {
+        fitSoon();
         const doc = frame.contentDocument;
-        if (!doc) return;
-        new MutationObserver(fit).observe(doc.body, {
+        if (!doc?.body || wired) return;
+        wired = true;
+        new MutationObserver(() => {
+          fit();
+          fitSoon();
+        }).observe(doc.body, {
           childList: true,
           subtree: true,
           attributes: true,
         });
-        doc.addEventListener("click", () => requestAnimationFrame(fit));
-      });
+        doc.defaultView.addEventListener("safwa-roomchange", () => {
+          fit();
+          fitSoon();
+          setTimeout(fit, 50);
+        });
+        doc.addEventListener("click", () => {
+          fit();
+          fitSoon();
+          setTimeout(fit, 50);
+        });
+      }
+      frame.addEventListener("load", wire);
+      if (frame.contentDocument?.readyState === "complete") wire();
+      const retry = setInterval(() => {
+        if (!frame.contentDocument?.body) return;
+        wire();
+        if (frame.style.height) clearInterval(retry);
+      }, 50);
+      setTimeout(() => clearInterval(retry), 2000);
     </script>
   </body>
 </html>

@@ -44,10 +44,12 @@ button {
 html,
 body {
   width: 320px;
+  height: fit-content;
   margin: 0;
   background: var(--surface);
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 body {
