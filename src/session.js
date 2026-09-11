@@ -537,19 +537,23 @@ export function startSession(deps) {
       const sourceId = row.feature?.targetSourceId ?? row.primary.sourceId;
       const anchor = anchors.get(sourceId);
       const record = admission.getRecord(sourceId);
-      const available =
-        config.FEATURE_PROXY_ENABLED &&
-        config.PANEL_MODE === "sidebar" &&
-        !!anchor?.el?.isConnected &&
-        record?.shown !== "on" &&
-        record?.shown !== "pending";
+      const avail = panelModel.featureAvailability({
+        enabled: config.FEATURE_PROXY_ENABLED === true,
+        sidebar: config.PANEL_MODE === "sidebar",
+        anchorOk: !!anchor?.el?.isConnected,
+        shown: record?.shown,
+      });
       row.feature = {
-        available,
-        reasonCode: available ? null : "featureFindNative",
+        available: avail.available,
+        reasonCode: avail.reasonCode,
         labelKey: row.badges?.joined ? "featureShowFirst" : "featureShow",
         targetSourceId: sourceId,
         contentRevision: record?.admissionSeq ?? null,
       };
+      if (record) {
+        row.shown = record.shown === "on" ? "on" : record.shown === "pending" ? "pending" : "unknown";
+        row.starred = record.starred === "on" ? "on" : "unknown";
+      }
     }
     return projection;
   }
@@ -767,12 +771,35 @@ export function startSession(deps) {
       enabled: config.FEATURE_PROXY_ENABLED,
       now: Date.now(),
     });
+    if (record && Date.now() < (record.featureCoolingUntil ?? 0)) {
+      return finish(request.requestId, refuse("featureFindNative"));
+    }
     if (!verdict.ok) return finish(request.requestId, refuse(verdict.reasonCode ?? "featureFindNative"));
     const clicked = dom.clickShowButton(anchor.el);
     if (!clicked) return finish(request.requestId, refuse("featureFindNative"));
-    // Latch the one validated click in the model: every later snapshot/rebuild
-    // must keep the button disabled so it can never toggle the comment off air.
-    if (record) record.shown = "pending";
+    // One validated native click, then reflect on/off locally so the sidebar
+    // icon stays in sync. A short cool-down blocks a second click (the native
+    // control is a toggle). WS shownSet still overrides in enrich/primary.
+    if (record) {
+      const wasOn = record.shown === "on";
+      const wsReflectsShown = config.WS_MODE === "enrich" || config.WS_MODE === "primary";
+      const coolMs = config.FEATURE_PROXY?.ackTimeoutMs ?? 1000;
+      const offLatchMs = config.WS_LIMITS?.featureStateMs ?? 15000;
+      if (wasOn) {
+        record.shown = "unknown";
+        record.shownOffUntil = Date.now() + offLatchMs;
+      } else if (wsReflectsShown) {
+        record.shown = "pending";
+        record.shownOffUntil = 0;
+      } else {
+        record.shown = "on";
+        record.shownOffUntil = 0;
+      }
+      // Request-time only: do not bake cooling into the published row or the
+      // icon stays disabled until some later comment republishes.
+      record.featureCoolingUntil = Date.now() + coolMs;
+    }
+    publish(false);
     return finish(request.requestId, FEATURE_OK);
   }
 

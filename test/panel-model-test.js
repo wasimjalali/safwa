@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { buildViewRows, describeHealth, platformIcon, PLATFORM_ICONS } from "../src/panel-model.js";
+import { buildViewRows, describeHealth, featureAvailability, platformIcon, PLATFORM_ICONS } from "../src/panel-model.js";
 import { CONFIG } from "../src/config.js";
 
 let passed = 0;
@@ -78,23 +78,87 @@ check("duplicate folds onto target with members and count label", () => {
   assert.match(rows[0].badges.countLabel, /2/); // Western digits are the configured default
 });
 
-check("continuation exposes fragments and first-fragment label", () => {
+check("continuation folds onto the first fragment as one numbered row", () => {
   const records = [
     record("src_1", "@a", "نصف اول", 1000),
     record("src_2", "@a", "نصف دوم", 1500),
   ];
+  const fragments = [
+    { sourceId: "src_1", handle: "@a", displayText: "نصف اول", admittedAt: 1000 },
+    { sourceId: "src_2", handle: "@a", displayText: "نصف دوم", admittedAt: 1500 },
+  ];
   const decisions = new Map([
-    ["src_1", { type: "continuation", joinedFragments: [
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "continuation", joinedFragments: fragments }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 1, "two parts are one question");
+  assert.equal(rows[0].primary.sourceId, "src_1");
+  assert.equal(rows[0].badges.joined, true);
+  assert.equal(rows[0].joinedFragments.length, 2);
+  assert.equal(rows[0].feature.labelKey, "featureShowFirst");
+  assert.equal(rows[0].feature.targetSourceId, "src_1");
+  assert.equal(rows[0].index, 1);
+  assert.equal(rows[0].indexLabel, "۱");
+});
+
+check("a later primary after a split keeps its own number", () => {
+  const records = [
+    record("src_1", "@a", "نصف اول", 1000),
+    record("src_2", "@a", "نصف دوم", 1500),
+    record("src_3", "@b", "سوال دیگر", 2000),
+  ];
+  const fragments = [
+    { sourceId: "src_1", handle: "@a", displayText: "نصف اول", admittedAt: 1000 },
+    { sourceId: "src_2", handle: "@a", displayText: "نصف دوم", admittedAt: 1500 },
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "continuation", joinedFragments: fragments }],
+    ["src_3", { type: "primary" }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].primary.sourceId, "src_1");
+  assert.equal(rows[0].indexLabel, "۱");
+  assert.equal(rows[1].primary.sourceId, "src_3");
+  assert.equal(rows[1].indexLabel, "۲");
+});
+
+check("joined shown state follows the first fragment, not the tail", () => {
+  const records = [
+    record("src_1", "@a", "نصف اول", 1000, { shown: "on" }),
+    record("src_2", "@a", "نصف دوم", 1500, { shown: "unknown" }),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "greeting", hide: true }],
+    ["src_2", { type: "continuation", joinedFragments: [
       { sourceId: "src_1", handle: "@a", displayText: "نصف اول", admittedAt: 1000 },
       { sourceId: "src_2", handle: "@a", displayText: "نصف دوم", admittedAt: 1500 },
     ] }],
-    ["src_2", { type: "primary" }],
   ]);
   const { rows } = buildViewRows(records, decisions, config);
-  const joined = rows.find((r) => r.primary.sourceId === "src_1");
-  assert.equal(joined.badges.joined, true);
-  assert.equal(joined.joinedFragments.length, 2);
-  assert.equal(joined.feature.labelKey, "featureShowFirst");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].primary.sourceId, "src_1");
+  assert.equal(rows[0].primary.displayText, "نصف اول");
+  assert.equal(rows[0].feature.targetSourceId, "src_1");
+  assert.equal(rows[0].shown, "on", "icon matches the native row we would click");
+});
+
+check("joined fallback never features the tail when the head row is missing", () => {
+  const records = [record("src_2", "@a", "نصف دوم", 1500)];
+  const decisions = new Map([
+    ["src_2", { type: "continuation", joinedFragments: [
+      { sourceId: "src_1", handle: "@a", displayText: "نصف اول", admittedAt: 1000 },
+      { sourceId: "src_2", handle: "@a", displayText: "نصف دوم", admittedAt: 1500 },
+    ] }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].primary.displayText, "نصف اول");
+  assert.equal(rows[0].feature.available, false);
+  assert.equal(rows[0].feature.targetSourceId, "src_1");
+  assert.equal(rows[0].feature.labelKey, "featureShowFirst");
 });
 
 check("unconfirmed extra stays visible with the second-question badge", () => {
@@ -140,18 +204,35 @@ check("hidden greeting stays reachable in folded", () => {
   assert.equal(folded[0].sourceId, "src_1");
 });
 
-check("feature unavailable without dom anchor or when shown", () => {
+check("feature unavailable without dom anchor; on-air stays clickable", () => {
   const records = [
     record("src_1", "@a", "بدون لنگر", 1000, { domAnchor: false }),
     record("src_2", "@b", "روی پخش", 2000, { shown: "on" }),
+    record("src_3", "@c", "در انتظار", 3000, { shown: "pending" }),
   ];
   const decisions = new Map([
     ["src_1", { type: "primary" }],
     ["src_2", { type: "primary" }],
+    ["src_3", { type: "primary" }],
   ]);
   const { rows } = buildViewRows(records, decisions, config);
   assert.equal(rows.find((r) => r.primary.sourceId === "src_1").feature.available, false);
-  assert.equal(rows.find((r) => r.primary.sourceId === "src_2").feature.available, false);
+  assert.equal(rows.find((r) => r.primary.sourceId === "src_2").feature.available, true);
+  assert.equal(rows.find((r) => r.primary.sourceId === "src_2").shown, "on");
+  assert.equal(rows.find((r) => r.primary.sourceId === "src_3").feature.available, false);
+  assert.equal(rows[0].indexLabel, "۱");
+  assert.equal(rows[1].indexLabel, "۲");
+  assert.equal(rows[2].indexLabel, "۳");
+});
+
+check("featureAvailability is the shared gate for session and projection", () => {
+  const base = { enabled: true, sidebar: true, anchorOk: true, shown: "unknown" };
+  assert.equal(featureAvailability(base).available, true);
+  assert.equal(featureAvailability({ ...base, shown: "on" }).available, true);
+  assert.equal(featureAvailability({ ...base, shown: "pending" }).available, false);
+  assert.equal(featureAvailability({ ...base, coolingUntil: 20, now: 10 }).available, false);
+  assert.equal(featureAvailability({ ...base, coolingUntil: 20, now: 21 }).available, true);
+  assert.equal(featureAvailability({ ...base, anchorOk: false }).available, false);
 });
 
 check("duplicate with unknown target stays reachable in folded", () => {

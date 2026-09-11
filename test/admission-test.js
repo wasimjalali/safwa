@@ -630,6 +630,25 @@ test("reset clears records, indexes, pending candidates and the sequence", () =>
 });
 
 
+test("shownOffUntil blocks a lagging shownSet after the teacher toggles off", () => {
+  const { api, clock: fake } = admissionWith("enrich");
+  const [first] = roomComments("comment.created.first");
+  const admitted = api.admitDom(domFrom(first, { timestamp: 10 }));
+  const rec = api.getRecord(admitted.sourceId);
+  rec.commentId = "c1";
+  rec.broadcastId = "b1";
+  rec.shown = "unknown";
+  rec.shownOffUntil = 2_000;
+  fake.set(1_000);
+
+  api.applyStateEvents([{ kind: "shownSet", broadcastId: "b1", shownCommentIds: ["c1"] }]);
+  assert.equal(rec.shown, "unknown", "stale on-air snapshot cannot invert toggle-off");
+
+  fake.set(2_001);
+  api.applyStateEvents([{ kind: "shownSet", broadcastId: "b1", shownCommentIds: ["c1"] }]);
+  assert.equal(rec.shown, "on", "after the latch, an explicit id is on");
+});
+
 test("sticky pending: a pre-click shownSet cannot re-arm a latched record", () => {
   const { api } = admissionWith("enrich");
   const [first] = roomComments("comment.created.first");

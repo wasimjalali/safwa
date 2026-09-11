@@ -158,22 +158,52 @@ html, body {
   border-radius: 14px;
   background: var(--surface);
   padding: 12px 12px 10px;
-  display: grid;
-  grid-template-columns: 34px 1fr;
-  gap: 6px 10px;
-  align-items: start;
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
   transition: border-color 150ms var(--ease-out);
 }
 .row:hover { border-color: var(--border-strong); }
-.row--pending { border-style: dashed; }
-.row--second { opacity: 0.86; }
 .row--shown { border-color: var(--success); }
+.row--joined {
+  border-color: var(--border-strong);
+  border-inline-start-width: 3px;
+  border-inline-start-color: var(--ink);
+}
 
 .row__avatar-wrap {
   position: relative;
   width: 34px;
   height: 34px;
-  grid-row: span 3;
+  flex: none;
+}
+.row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.row__rail {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 .row__avatar {
   width: 34px;
@@ -215,6 +245,9 @@ html, body {
   color: var(--ink);
 }
 .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   line-height: 1.6;
   padding: 1px 8px;
@@ -230,59 +263,76 @@ html, body {
   color: var(--brand);
   font-weight: 600;
 }
-.chip--joined { border-color: var(--border-strong); color: var(--ink); }
+.chip--part {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: var(--brand);
+  font-weight: 600;
+}
 .chip--second { background: var(--warning-soft); border-color: var(--warning-soft); color: var(--warning); }
-.chip--pending { border-style: dashed; }
+.chip--star { color: var(--warning); }
 
+.row__parts { display: flex; flex-direction: column; gap: 8px; }
 .row__text {
-  grid-column: 2;
   line-height: 1.9;
   font-size: 15px;
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
 }
-
-.row__actions {
-  grid-column: 2;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 4px;
+.row__text--part {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 
-.feature {
+.air {
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 1px solid var(--border-strong);
+  border-radius: 10px;
   background: var(--surface);
   color: var(--ink);
-  border-radius: 10px;
-  padding: 7px 14px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 550;
+  display: grid;
+  place-items: center;
   cursor: pointer;
-  min-height: 40px;
+  flex: none;
   transition: background 150ms var(--ease-out), border-color 150ms var(--ease-out), color 150ms var(--ease-out);
 }
-.feature:hover:not(:disabled) {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent-deep);
+.air svg { width: 16px; height: 16px; }
+.air:hover:not(:disabled) { background: var(--accent-soft); }
+.air:disabled { opacity: 0.55; cursor: default; }
+.air.is-on {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
 }
-.feature:active:not(:disabled) { background: var(--sunken); }
-.feature:disabled { opacity: 0.55; cursor: default; }
 
-.state { font-size: 12px; font-weight: 600; color: var(--success); }
-.state--star { color: var(--warning); }
-
-.joined-frag {
-  grid-column: 2;
-  border-inline-start: 1px solid var(--border-strong);
-  padding-inline-start: 8px;
-  color: var(--ink-muted);
+details.count { margin: 0; }
+details.count summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  width: fit-content;
+}
+details.count summary::-webkit-details-marker { display: none; }
+details.count summary .tri {
+  width: 8px;
+  height: 8px;
+  color: var(--ink);
+  flex: none;
+  transform-origin: 50% 50%;
+  transition: transform 150ms var(--ease-out);
+}
+details.count[open] summary .tri { transform: rotate(-90deg); }
+.count__list { padding: 4px 0 0; }
+.count__item {
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--border);
   font-size: 14px;
+  color: var(--ink-muted);
 }
+.count__item:last-child { border-bottom: 0; }
 
 .folded { margin: 6px 0 0; }
 .folded summary {

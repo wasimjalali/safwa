@@ -87,9 +87,9 @@ check("stale source revision refuses", () => {
   assert.equal(checkFeatureRequest({ ...happy, request }).ok, false);
 });
 
-check("already shown refuses (never toggle off air)", () => {
+check("already shown is allowed so the teacher can toggle off", () => {
   const shownRecord = { ...record, shown: "on" };
-  assert.equal(checkFeatureRequest({ ...happy, record: shownRecord }).ok, false);
+  assert.equal(checkFeatureRequest({ ...happy, record: shownRecord }).ok, true);
 });
 
 check("a latched click (pending) refuses a second click", () => {

@@ -219,7 +219,8 @@ export const CONFIG = {
   // Dari badge + popup labels. Edit the wording here; nothing else needs to
   // change. {n} in COUNT is replaced with the (optionally Persian) digit count.
   LABELS: {
-    joined: "ادامه سوال قبلی",       // "continuation of the previous question"
+    joined: "ادامه سوال قبلی",       // v1 native-feed badge; sidebar uses joinedParts
+    joinedParts: "دو قسمت",          // sidebar: two-part question, next to the handle
     askedTimes: "{n} بار پرسیده شد", // "asked {n} times"
     possibleDuplicate: "شاید تکراری باشد", // "it may be a duplicate"
     secondQuestion: "سوال دوم این شخص", // "this person's second question"
@@ -258,7 +259,7 @@ export const CONFIG = {
     settingHideExtra: "پنهان کردن سوال دوم هر نفر",
     settingHideExtraOn: [
       "اگر یک نفر سوال جداگانهٔ دیگری بفرستد، بعد از تأیید از ستون پنهان می‌شود.",
-      "در «نظرهای جمع‌شده» همچنان قابل دیدن است.",
+      "در «سوال‌های جمع‌شده» همچنان قابل دیدن است.",
     ],
     settingHideExtraOff: [
       "سوال دوم در ستون می‌ماند و با نشانهٔ «سوال دوم این شخص» مشخص می‌شود.",
@@ -308,7 +309,7 @@ export const CONFIG = {
     panelKeepCommentsOpen: "ستون نظرات StreamYard را باز نگه دارید",
     panelSimpleMode: "حالت ساده",
     panelNewItems: "سوال‌های تازه",
-    panelFolded: "نظرهای جمع‌شده",
+    panelFolded: "سوال‌های جمع‌شده",
     panelOlder: "سوال‌های قدیمی‌تر",
     panelSettingsBack: "بازگشت",
     platformUnknown: "نامشخص",

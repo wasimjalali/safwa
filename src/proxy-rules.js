@@ -48,7 +48,7 @@ export function checkFeatureRequest(facts) {
   ) {
     return { ok: false, reasonCode: REFUSE };
   }
-  if (record.shown === "on" || record.shown === "pending") {
+  if (record.shown === "pending") {
     return { ok: false, reasonCode: REFUSE };
   }
   if (!liveRow) return { ok: false, reasonCode: REFUSE };
