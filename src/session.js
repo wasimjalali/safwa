@@ -550,6 +550,10 @@ export function startSession(deps) {
         targetSourceId: sourceId,
         contentRevision: record?.admissionSeq ?? null,
       };
+      if (record) {
+        row.shown = record.shown === "on" ? "on" : record.shown === "pending" ? "pending" : "unknown";
+        row.starred = record.starred === "on" ? "on" : "unknown";
+      }
     }
     return projection;
   }

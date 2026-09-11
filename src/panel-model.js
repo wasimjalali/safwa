@@ -156,6 +156,7 @@ export function buildViewRows(records, decisions, config) {
     // never click the tail's native row under a "show first part" label.
     if (headRecord) {
       row.feature = { ...featureFor(headRecord, true), targetSourceId: headId };
+      row.shown = headRecord.shown === "on" ? "on" : headRecord.shown === "pending" ? "pending" : "unknown";
     } else {
       row.feature = {
         available: false,

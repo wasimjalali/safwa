@@ -125,6 +125,24 @@ check("a later primary after a split keeps its own number", () => {
   assert.equal(rows[1].indexLabel, "۲");
 });
 
+check("joined shown state follows the first fragment, not the tail", () => {
+  const records = [
+    record("src_1", "@a", "نصف اول", 1000, { shown: "on" }),
+    record("src_2", "@a", "نصف دوم", 1500, { shown: "unknown" }),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "greeting", hide: true }],
+    ["src_2", { type: "continuation", joinedFragments: [
+      { sourceId: "src_1", handle: "@a", displayText: "نصف اول", admittedAt: 1000 },
+      { sourceId: "src_2", handle: "@a", displayText: "نصف دوم", admittedAt: 1500 },
+    ] }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].feature.targetSourceId, "src_1");
+  assert.equal(rows[0].shown, "on", "icon matches the native row we would click");
+});
+
 check("joined fallback never features the tail when the head row is missing", () => {
   const records = [record("src_2", "@a", "نصف دوم", 1500)];
   const decisions = new Map([
