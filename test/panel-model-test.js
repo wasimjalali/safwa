@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { buildViewRows, describeHealth, featureAvailability, platformIcon, PLATFORM_ICONS } from "../src/panel-model.js";
+import { buildViewRows, describeHealth, featureAvailability, platformIcon, PLATFORM_ICONS, statusLine } from "../src/panel-model.js";
 import { CONFIG } from "../src/config.js";
 
 let passed = 0;
@@ -274,6 +274,20 @@ check("describeHealth maps states to label keys", () => {
   assert.equal(describeHealth("off", "disconnected", config), "panelDisconnected");
   assert.equal(describeHealth("off", "simple", config), "panelSimpleMode");
   assert.equal(describeHealth("off", "loading", config), "panelLoading");
+});
+
+check("statusLine stays empty when the DOM session is healthy", () => {
+  assert.equal(statusLine({ observer: "ok", wsState: "off", enabled: true }), null);
+  assert.equal(
+    statusLine({ observer: "ok", wsState: "demoted", enabled: true }),
+    null,
+    "WS-off demotion must not nag about the comments column"
+  );
+});
+
+check("statusLine only asks to open comments when the container is gone", () => {
+  assert.equal(statusLine({ observer: "unavailable", wsState: "off", enabled: true }), "panelKeepCommentsOpen");
+  assert.equal(statusLine({ observer: "ok", wsState: "off", enabled: false }), "popupStatusOff");
 });
 
 console.log(`panel-model tests: ${passed} passed, ${failed} failed`);

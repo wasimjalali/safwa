@@ -290,6 +290,17 @@ function aroundIndex(rows, indexBySource, targetId) {
   return -1;
 }
 
+/**
+ * Teacher-facing banner. Empty while the sidebar is reading comments.
+ * A WS demotion is not a comments-column problem (production is DOM-only).
+ */
+export function statusLine({ observer, wsState, enabled }) {
+  void wsState;
+  if (observer === "unavailable") return "panelKeepCommentsOpen";
+  if (enabled === false) return "popupStatusOff";
+  return null;
+}
+
 /** Health/observer state -> a LABELS key for the panel's status line. */
 export function describeHealth(wsState, observerState, config) {
   const L = config?.LABELS ?? {};

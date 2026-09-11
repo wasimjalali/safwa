@@ -7,7 +7,7 @@
 
 import { CONFIG, STORAGE_KEYS } from "../src/config.js";
 import { isStreamYardUrl, readPinnedTabId } from "../src/inject.js";
-import { platformIcon } from "../src/panel-model.js";
+import { platformIcon, statusLine } from "../src/panel-model.js";
 import { MESSAGE_TYPES, PORT_NAME, makeEnvelope } from "../src/protocol.js";
 
 const L = CONFIG.LABELS;
@@ -289,14 +289,18 @@ function onPortMessage(message) {
 }
 
 function setStatus(text) {
-  statusEl.textContent = text ?? "";
+  const next = text ?? "";
+  statusEl.textContent = next;
+  statusEl.hidden = !next;
 }
 
 function paintStatus() {
-  if (lastHealth.observer === "unavailable") setStatus(L.panelKeepCommentsOpen);
-  else if (lastHealth.wsState === "demoted") setStatus(L.panelKeepCommentsOpen);
-  else if (!enabled) setStatus(L.popupStatusOff);
-  else setStatus("");
+  const key = statusLine({
+    observer: lastHealth.observer,
+    wsState: lastHealth.wsState,
+    enabled,
+  });
+  setStatus(key ? L[key] : "");
 }
 
 function paintEnabledState() {

@@ -159,12 +159,14 @@ export function startSession(deps) {
     }
     startWs();
     setInterval(() => {
-      health.tick();
-      const snap = health.snapshot();
-      if (snap.bridge?.state === "demoted" || snap.room?.state === "demoted") {
-        wsState = "demoted";
-      } else if (config.WS_MODE !== "off" && wsState === "starting") {
-        wsState = config.WS_MODE;
+      if (config.WS_MODE !== "off") {
+        health.tick();
+        const snap = health.snapshot();
+        if (snap.bridge?.state === "demoted" || snap.room?.state === "demoted") {
+          wsState = "demoted";
+        } else if (wsState === "starting") {
+          wsState = config.WS_MODE;
+        }
       }
       publishHealth();
     }, config.PANEL.healthIntervalMs);
