@@ -128,7 +128,7 @@ globalThis.setTimeout = (callback) => {
 globalThis.setInterval = () => 1;
 globalThis.clearInterval = () => {};
 
-await import(`../src/content.js?virtual-anchor-test=${Date.now()}`);
+await import(`../src/content-legacy.js?virtual-anchor-test=${Date.now()}`);
 await new Promise((resolve) => setImmediate(resolve));
 
 recycled.replaceComment("viewer-two", "different replacement question");

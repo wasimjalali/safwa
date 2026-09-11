@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fa-AF" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ṣafwa — صفوة</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <noscript>
+      <p class="static-failure">برای دیدن سوال‌ها، ستون نظرات StreamYard را باز نگه دارید.</p>
+    </noscript>
+    <div id="app" hidden>
+      <header class="head">
+        <div class="head__top">
+          <div class="head__title">صفوة — سوال‌های برنامه زنده</div>
+          <button id="gear" class="icon-btn" type="button" aria-label="تنظیمات">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3.1" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.1 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03Z" />
+            </svg>
+          </button>
+        </div>
+        <div class="head__filter">
+          <span class="filter__label">فیلتر سوال‌ها</span>
+          <label class="switch">
+            <input id="master" type="checkbox" aria-label="فیلتر" />
+            <span></span>
+          </label>
+        </div>
+      </header>
+
+      <div id="status" class="status" role="status"></div>
+
+      <main id="list" class="list uv-scroll" aria-live="polite"></main>
+
+      <section id="settings" class="settings" hidden>
+        <div class="settings__head">
+          <span>تنظیمات</span>
+        </div>
+        <div id="toggles" class="settings__toggles"></div>
+        <button id="reset" class="reset" type="button">شروع تازه برای این برنامه</button>
+      </section>
+
+      <button id="new-items" class="new-items" type="button" hidden>سوال‌های تازه</button>
+    </div>
+    <p id="static-failure" class="static-failure" hidden>
+      Ṣafwa نتوانست رابط را بارگذاری کند؛ از ستون نظرات StreamYard استفاده کنید.
+    </p>
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

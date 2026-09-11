@@ -1,0 +1,50 @@
+[
+ {
+  "name": "comment.created.first",
+  "url": "wss://videows.streamyard.com/ROOM_ID?clientId=CLIENT_ID&token=REDACTED",
+  "dir": "in",
+  "raw": "{\"message\": {\"command\": \"appMessage\", \"body\": {\"message\": \"{\\\"data\\\": {\\\"comments\\\": [{\\\"authorPlatformId\\\": \\\"UC_SANITIZED_1\\\", \\\"createdAt\\\": \\\"2026-09-11T00:05:37.664Z\\\", \\\"id\\\": \\\"LCC.SANITIZED_1\\\", \\\"isChatModerator\\\": false, \\\"isMember\\\": false, \\\"largeImageSrc\\\": \\\"https://example.invalid/avatar1.jpg\\\", \\\"name\\\": \\\"@teacher_channel\\\", \\\"smallImageSrc\\\": \\\"https://example.invalid/avatar1.jpg\\\", \\\"contents\\\": [{\\\"type\\\": \\\"text\\\", \\\"content\\\": \\\"آیا نماز در سفر قصر خوانده میشود؟\\\"}], \\\"type\\\": \\\"text\\\", \\\"isAlternativeOrientation\\\": false, \\\"isGuestOutput\\\": false, \\\"outputId\\\": \\\"OUTPUT_ID\\\", \\\"platform\\\": \\\"youtube\\\", \\\"publisherPermissionLevel\\\": 9000, \\\"containsQuestion\\\": false}], \\\"broadcastId\\\": \\\"BROADCAST_ID\\\", \\\"destinationId\\\": \\\"DEST_ID\\\", \\\"outputId\\\": \\\"OUTPUT_ID\\\", \\\"platform\\\": \\\"youtube\\\", \\\"userId\\\": \\\"USER_ID_1\\\"}, \\\"type\\\": \\\"platformComments.created\\\"}\"}, \"sentAt\": \"2026-09-11T00:05:39.956Z\"}, \"pos\": 12, \"type\": \"message\"}"
+ },
+ {
+  "name": "comment.created.duplicate",
+  "url": "wss://videows.streamyard.com/ROOM_ID?clientId=CLIENT_ID&token=REDACTED",
+  "dir": "in",
+  "raw": "{\"message\": {\"command\": \"appMessage\", \"body\": {\"message\": \"{\\\"data\\\": {\\\"comments\\\": [{\\\"authorPlatformId\\\": \\\"UC_SANITIZED_1\\\", \\\"createdAt\\\": \\\"2026-09-11T00:05:37.664Z\\\", \\\"id\\\": \\\"LCC.SANITIZED_1\\\", \\\"isChatModerator\\\": false, \\\"isMember\\\": false, \\\"largeImageSrc\\\": \\\"https://example.invalid/avatar1.jpg\\\", \\\"name\\\": \\\"@teacher_channel\\\", \\\"smallImageSrc\\\": \\\"https://example.invalid/avatar1.jpg\\\", \\\"contents\\\": [{\\\"type\\\": \\\"text\\\", \\\"content\\\": \\\"آیا نماز در سفر قصر خوانده میشود؟\\\"}], \\\"type\\\": \\\"text\\\", \\\"isAlternativeOrientation\\\": false, \\\"isGuestOutput\\\": false, \\\"outputId\\\": \\\"OUTPUT_ID\\\", \\\"platform\\\": \\\"youtube\\\", \\\"containsQuestion\\\": false}], \\\"broadcastId\\\": \\\"BROADCAST_ID\\\", \\\"destinationId\\\": \\\"DEST_ID\\\", \\\"outputId\\\": \\\"OUTPUT_ID\\\", \\\"platform\\\": \\\"youtube\\\", \\\"userId\\\": \\\"USER_ID_1\\\"}, \\\"type\\\": \\\"platformComments.created\\\"}\"}, \"sentAt\": \"2026-09-11T00:05:44.367Z\"}, \"pos\": 13, \"type\": \"message\"}"
+ },
+ {
+  "name": "comment.starred",
+  "url": "wss://streamyard.com/api",
+  "dir": "in",
+  "raw": "{\"type\": \"update\", \"message\": {\"payload\": {\"authorPlatformId\": \"UC_SANITIZED_1\", \"createdAt\": \"2026-09-11T00:05:37.664Z\", \"id\": \"LCC.SANITIZED_1\", \"isChatModerator\": false, \"isMember\": false, \"largeImageSrc\": \"https://example.invalid/avatar1.jpg\", \"name\": \"@teacher_channel\", \"smallImageSrc\": \"https://example.invalid/avatar1.jpg\", \"contents\": [{\"type\": \"text\", \"content\": \"آیا نماز در سفر قصر خوانده میشود؟\"}], \"type\": \"text\", \"isGuestOutput\": false, \"outputId\": \"OUTPUT_ID\", \"platform\": \"youtube\", \"broadcastId\": \"BROADCAST_ID\", \"starredAt\": \"2026-09-11T00:07:25.302Z\"}, \"subscription\": \"starredComment.starred\"}}"
+ },
+ {
+  "name": "comment.showRequest.out",
+  "url": "wss://videows.streamyard.com/ROOM_ID?clientId=CLIENT_ID&token=REDACTED",
+  "dir": "out",
+  "raw": "{\"message\": {\"command\": \"showComment\", \"body\": {\"contents\": [{\"type\": \"text\", \"content\": \"آیا نماز در سفر قصر خوانده میشود؟\"}], \"id\": \"LCC.SANITIZED_1\", \"name\": \"@teacher_channel\", \"type\": \"text\", \"imageSrc\": \"https://example.invalid/avatar1.jpg\", \"platform\": \"youtube\"}}, \"pos\": 12, \"type\": \"message\"}"
+ },
+ {
+  "name": "comment.updated.in",
+  "url": "wss://videows.streamyard.com/ROOM_ID?clientId=CLIENT_ID&token=REDACTED",
+  "dir": "in",
+  "raw": "{\"message\": {\"command\": \"commentUpdated\", \"body\": {\"comment\": {\"contents\": [{\"content\": \"آیا نماز در سفر قصر خوانده میشود؟\", \"type\": \"text\"}], \"id\": \"LCC.SANITIZED_1\", \"imageSrc\": \"https://example.invalid/avatar1.jpg\", \"name\": \"@teacher_channel\", \"platform\": \"youtube\", \"type\": \"text\"}}, \"sentAt\": \"2026-09-11T00:07:49.572Z\"}, \"pos\": 14, \"type\": \"message\"}"
+ },
+ {
+  "name": "broadcast.update.shownCommentIds",
+  "url": "wss://streamyard.com/api",
+  "dir": "in",
+  "raw": "{\"type\": \"update\", \"message\": {\"payload\": {\"timestamp\": \"2026-09-11T00:07:59.586Z\", \"broadcast\": {\"areScenesEnabled\": false, \"canGuestsComment\": true, \"isPortrait\": false, \"mediaId\": \"MEDIA_ID\", \"pinnedAsReusable\": false, \"selectedBrandId\": \"BRAND_ID\", \"shouldCloudRecord\": true, \"status\": \"available\", \"title\": \"Safwa WS Capture Test\", \"type\": \"studio\", \"videoRoomId\": \"ROOM_ID\", \"createdAt\": \"2026-09-10T23:52:35.182Z\", \"initialIntent\": \"livestream\", \"hostId\": \"USER_ID_1\", \"id\": \"BROADCAST_ID\", \"marsStudio\": true, \"localIsolatedRecordings\": null, \"teamId\": \"TEAM_ID\", \"workspaceId\": \"WORKSPACE_ID\", \"createdBy\": \"system\", \"updatedAt\": \"2026-09-11T00:07:49.714Z\", \"updatedBy\": \"system\", \"shownCommentIds\": [\"LCC.SANITIZED_1\"], \"lastCompletedAt\": null, \"isExtended\": false, \"isHopinBackstage\": false, \"mediaTitle\": \"Safwa WS Capture Test\", \"cumulativeDurationInMs\": 0, \"wasRecordingCut\": false, \"wasVodDeleted\": false, \"availableAt\": \"2026-09-10T23:52:38.832Z\", \"hostDisplayName\": \"HOST_NAME\", \"outputs\": [{\"broadcastId\": \"BROADCAST_ID\", \"privacy\": \"unlisted\", \"broadcastTeamId\": \"TEAM_ID\", \"createdBy\": \"USER_ID_1\", \"destinationId\": \"DEST_ID\", \"destinationTeamId\": \"TEAM_ID\", \"hostId\": \"USER_ID_1\", \"id\": \"OUTPUT_ID\", \"isGuestOutput\": false, \"outputOrientation\": \"landscape\", \"platform\": \"youtube\", \"platformUsername\": \"CHANNEL_NAME\", \"status\": \"created\", \"teamId\": \"TEAM_ID\", \"type\": \"studio\", \"workspaceId\": \"WORKSPACE_ID\", \"createdAt\": \"2026-09-10T23:52:35.596Z\", \"errors\": [], \"updatedAt\": \"2026-09-10T23:52:35.596Z\", \"category\": \"24\", \"description\": \"🎙️ New to streaming or looking to level up? Check out StreamYard and get $10 discount! 😍 https://streamyard.com/pal/d/USER_ID_1\", \"youtubeMonetizationStrategy\": null, \"title\": \"Safwa WS Capture Test\", \"platformChatId\": \"PLATFORM_CHAT_ID\", \"platformLink\": \"https://example.invalid/watch\", \"platformStreamId\": \"PLATFORM_STREAM_ID\"}]}, \"team\": {\"id\": \"TEAM_ID\", \"createdAt\": \"2025-02-18T11:12:56.517Z\", \"createdBy\": \"USER_ID_1\", \"updatedAt\": \"2026-09-10T22:49:27.011Z\", \"updatedBy\": \"system\", \"freeLivestreamRecordingUsageHours\": 0, \"mediaStorageHoursUsed\": 1.8962891666666666, \"monthlyAiClipsUsage\": 0, \"monthlyLocalRecordingUsage\": 0, \"monthlyUsage\": 8508643, \"monthlyUsageStartDate\": \"2026-08-18T11:12:56.517Z\", \"monthlyUsageEndDate\": \"2026-09-18T11:12:56.517Z\", \"name\": \"TEAM_NAME\", \"ownerCreatedAt\": \"2025-02-18T11:12:56.517Z\", \"ownerId\": \"USER_ID_1\", \"plan\": \"free\", \"broadcastLengthExtensionsUsed\": 0, \"cancelAtCommitmentEnd\": false, \"cancellationDiscountAtCommitmentEnd\": false, \"currency\": \"usd\", \"enterpriseBannerEnabled\": false, \"hasSetName\": true, \"isMediaAutoDeleteEnabled\": false, \"isReferralBroadcastDescriptionEnabled\": true, \"isWebinarRegistrationAllowed\": true, \"maxSeats\": 1, \"lastBroadcastFinishedAt\": \"2026-09-10T22:48:53.275Z\", \"planInterval\": \"month\", \"planStartDate\": \"2025-02-18T11:12:56.517Z\", \"referralBroadcastDescription\": \"🎙️ New to streaming or looking to level up? Check out StreamYard and get $10 discount! 😍 https://streamyard.com/pal/d/USER_ID_1\", \"skipEnterpriseMigration\": false, \"tiersRepackagingEnabled\": true, \"tiersRepackagingVariant\": \"treatmentB\", \"weeklySubscriptionsVariant\": \"treatment2\", \"ssoRequested\": false, \"status\": \"success\", \"switchedCurrencyDates\": [], \"switchedCurrencyOverride\": false, \"temporaryCouponNames\": []}, \"workspace\": {\"canGuestsSeeComments\": true, \"createdAt\": \"2025-02-18T11:12:56.518Z\", \"createdBy\": \"USER_ID_1\", \"dingWhenGuestsEnter\": false, \"fadeOnShowHide\": true, \"guestsControlSlidesByDefault\": false, \"guestsMustAuth\": false, \"id\": \"WORKSPACE_ID\", \"name\": \"First Show\", \"preferredResolution\": \"720p\", \"shouldAutoAddScreens\": false, \"shouldHideAudioOnlyStreams\": false, \"shouldRecordIndividualAudio\": false, \"shouldShiftVideos\": true, \"teamId\": \"TEAM_ID\", \"updatedAt\": \"2025-02-18T11:12:56.797Z\", \"hasMigratedEpisodeGroup\": true, \"hasBeenOnboardedToBrandAssets\": false, \"isBrandedWelcomeEnabled\": false}}, \"subscription\": \"broadcast.status\"}}"
+ },
+ {
+  "name": "api.hello.out",
+  "url": "wss://streamyard.com/api",
+  "dir": "out",
+  "raw": "{\"type\": \"hello\", \"version\": \"2\", \"auth\": \"REDACTED\", \"id\": 1}"
+ },
+ {
+  "name": "heartbeat.ping",
+  "url": "wss://videows.streamyard.com/ROOM_ID?clientId=CLIENT_ID&token=REDACTED",
+  "dir": "out",
+  "raw": "{\"type\": \"ping\", \"pingSentAt\": 1754.2000000029802}"
+ }
+]

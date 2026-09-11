@@ -119,7 +119,7 @@ globalThis.setTimeout = (callback) => {
 globalThis.setInterval = () => 1;
 globalThis.clearInterval = () => {};
 
-await import(`../src/content.js?virtualization-test=${Date.now()}`);
+await import(`../src/content-legacy.js?virtualization-test=${Date.now()}`);
 
 for (let turn = 0; turn < 20 && annotationCount < 1; turn++) {
   await new Promise((resolve) => setImmediate(resolve));

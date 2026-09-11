@@ -147,4 +147,19 @@ assert.equal(
 );
 assert.equal(askedClasses.has("safwa-primary"), true);
 
+const countedBadges = [];
+const countedNode = {
+  classList: {
+    add() {},
+    remove() {},
+  },
+  appendChild: (badge) => countedBadges.push(badge),
+  querySelector: () => null,
+  querySelectorAll: (selector) => (selector === ".safwa-badge" ? [...countedBadges] : []),
+  setAttribute() {},
+};
+render({ type: "primary", count: 3, comment: { el: countedNode } }, CONFIG);
+assert.equal(countedBadges.length, 1, "a re-rendered original must keep its asked-N badge");
+assert.match(countedBadges[0].textContent, /3/);
+
 console.log("ui.js human-in-the-loop safety regression: PASS");

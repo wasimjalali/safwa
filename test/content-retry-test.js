@@ -71,7 +71,7 @@ globalThis.setTimeout = (callback, delay) => {
 globalThis.setInterval = () => 1;
 globalThis.clearInterval = () => {};
 
-await import(`../src/content.js?retry-test=${Date.now()}`);
+await import(`../src/content-legacy.js?retry-test=${Date.now()}`);
 
 for (let turn = 0; turn < 100; turn++) {
   if (messages.some((message) => message.includes("comments container found"))) break;

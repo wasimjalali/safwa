@@ -21,6 +21,13 @@
 
 const ANNOTATED_ATTR = "data-safwa-annotated";
 const COUNT_CLASS = "safwa-count";
+const STATE_CLASSES = [
+  "safwa-primary",
+  "safwa-joined",
+  "safwa-dim",
+  "safwa-collapsed",
+  "safwa-collapse-hide",
+];
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
 const collapsedCopies = new Map();
 
@@ -66,8 +73,20 @@ function setCountBadge(originalNode, count, config) {
   );
 }
 
-function originalNodeOf(decision) {
-  return decision.target?.firstComment?.el ?? null;
+/** Badges live on the comment card (cardEl), never on the scroller slot. */
+function anchorOf(comment) {
+  const node = comment?.el ?? null;
+  const card = comment?.cardEl ?? null;
+  return card && card !== node ? card : node;
+}
+
+/** Remove every annotation this extension may have put on a row. */
+function clearAnnotations(node) {
+  if (!node) return;
+  node.classList?.remove?.(...STATE_CLASSES);
+  if (typeof node.querySelectorAll !== "function") return;
+  for (const badge of node.querySelectorAll(".safwa-badge")) badge.remove?.();
+  for (const card of node.querySelectorAll(".safwa-card")) card.classList?.remove?.("safwa-joined");
 }
 
 function isCollapsedAnchor(node) {
@@ -83,69 +102,80 @@ export function render(decision, config) {
   const node = decision.comment?.el ?? null;
   if (!node) return;
   const dir = config.UI_DIRECTION;
+  const card = anchorOf(decision.comment);
   revealOrphanedDuplicates(node);
   collapsedCopies.delete(node);
 
   // Idempotency: a row can be re-annotated after a container re-render, and its
   // new decision may differ (state was rebuilt). Clear previous annotations so a
   // stale class (especially safwa-collapsed) can never hide a now-kept question.
-  node.classList.remove("safwa-primary", "safwa-joined", "safwa-dim", "safwa-collapsed");
-  for (const b of node.querySelectorAll(".safwa-badge")) b.remove();
+  clearAnnotations(node);
+  card?.classList?.add?.("safwa-card");
+
+  const stateClasses = [];
+  const collapse = () => {
+    stateClasses.push("safwa-collapsed");
+    if (config.COLLAPSE_MODE === "hide") stateClasses.push("safwa-collapse-hide");
+  };
 
   switch (decision.type) {
     case "greeting":
-      // Regex-certain greetings hide when the teacher toggle is on. A courtesy
+      // Regex-certain greetings fold when the teacher toggle is on. A courtesy
       // maybe stays visible until the LLM confirms (never hide a maybe).
-      if (decision.hide && config.HIDE_GREETINGS !== false) {
-        node.classList.add("safwa-collapsed");
-      }
+      if (decision.hide && config.HIDE_GREETINGS !== false) collapse();
       break;
 
     case "primary":
-      node.classList.add("safwa-primary");
+      stateClasses.push("safwa-primary");
+      if (decision.count > 1) setCountBadge(card, decision.count, config);
       break;
 
     case "continuation":
-      node.classList.add("safwa-joined");
-      ensureBadge(node, "joined", config.LABELS.joined, dir);
+      stateClasses.push("safwa-joined");
+      if (card !== node) card.classList?.add?.("safwa-joined");
+      ensureBadge(card, "joined", config.LABELS.joined, dir);
       break;
 
     case "duplicate": {
-      const original = originalNodeOf(decision);
+      const originalComment = decision.target?.firstComment ?? null;
+      const original = originalComment?.el ?? null;
 
-      // Cost-asymmetry guard: if the original row is gone, hidden, or this row
-      // IS the representative, it is the only visible copy. Never hide it.
+      // Cost-asymmetry guard: if the original row is gone, folded, or this row
+      // IS the representative, it is the only visible copy. Never fold it.
       if (!original || original === node || !original.isConnected || isCollapsedAnchor(original)) {
-        if (decision.target?.firstComment) decision.target.firstComment.el = node;
-        setCountBadge(node, decision.count, config);
+        if (originalComment) {
+          originalComment.el = node;
+          originalComment.cardEl = card;
+        }
+        setCountBadge(card, decision.count, config);
         break;
       }
 
-      setCountBadge(original, decision.count, config);
+      setCountBadge(anchorOf(originalComment), decision.count, config);
       const hideDup =
         (decision.kind === "exact" || decision.kind === "semantic") &&
         config.AUTO_COLLAPSE_EXACT_DUPLICATES &&
         !config.AUTO_HIDE_ANYTHING_AMBIGUOUS;
       if (hideDup) {
-        node.classList.add("safwa-collapsed");
+        collapse();
         collapsedCopies.set(node, original);
       } else {
-        node.classList.add("safwa-dim");
-        ensureBadge(node, "dup", config.LABELS.possibleDuplicate, dir);
+        stateClasses.push("safwa-dim");
+        ensureBadge(card, "dup", config.LABELS.possibleDuplicate, dir);
       }
       break;
     }
 
     case "extra": {
       // Regex extras stay visible (dim + badge) until the LLM confirms they
-      // are a genuine second question. Confirmed extras are hidden with no badge.
-      // Timeout leaves the dimmed row in place so a missed continuation is not
-      // deleted.
+      // are a genuine second question. Confirmed extras fold to a ghost and
+      // keep no badge. Timeout leaves the dimmed row in place so a missed
+      // continuation is not lost.
       if (decision.hide && config.HIDE_CONFIRMED_EXTRAS !== false) {
-        node.classList.add("safwa-collapsed");
+        collapse();
       } else {
-        node.classList.add("safwa-dim");
-        ensureBadge(node, "extra", config.LABELS.secondQuestion, dir);
+        stateClasses.push("safwa-dim");
+        ensureBadge(card, "extra", config.LABELS.secondQuestion, dir);
       }
       break;
     }
@@ -154,5 +184,6 @@ export function render(decision, config) {
       break;
   }
 
+  if (stateClasses.length) node.classList.add(...stateClasses);
   node.setAttribute(ANNOTATED_ATTR, decision.type);
 }

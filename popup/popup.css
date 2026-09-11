@@ -33,6 +33,12 @@
   box-sizing: border-box;
 }
 
+/* An author `display` rule beats the UA [hidden] rule; keep hidden elements
+ * hidden (the link-status / fix-link recovery UI relies on the attribute). */
+[hidden] {
+  display: none !important;
+}
+
 button:not(:disabled) {
   cursor: pointer;
 }
@@ -212,6 +218,35 @@ body {
 
 .hint.is-swapping {
   opacity: 0;
+}
+
+.link-status {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
+.fix-link {
+  display: block;
+  width: calc(100% - 28px);
+  min-height: 40px;
+  margin: 8px 14px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--ink);
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 12.5px;
+  font-weight: 550;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.fix-link:hover {
+  background: #2a2a2a;
 }
 
 .setting + .setting {

@@ -70,10 +70,30 @@
   background: var(--safwa-accent-deep);
 }
 
-html:not(.safwa-disabled) .safwa-joined {
+/* Anchored positioning: the card (ui.js marks it .safwa-card) is the coordinate
+ * system. Absolute badges add ZERO height, so the virtual scroller's geometry
+ * (and the row slots) stay exactly as StreamYard measured them. Badges can never
+ * float under the card or be painted over by the next row. */
+.safwa-card {
+  position: relative;
+}
+
+.safwa-card .safwa-badge {
+  position: absolute;
+  inset-block-end: 6px;
+  inset-inline-end: 8px;
+  margin: 0;
+  z-index: 3;
+  pointer-events: none;
+  user-select: none;
+  max-width: 72%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html:not(.safwa-disabled) .safwa-card.safwa-joined {
   border-inline-start: 2px solid var(--safwa-accent);
   padding-inline-start: 8px;
-  border-radius: 0;
 }
 
 .safwa-count {
@@ -97,8 +117,17 @@ html:not(.safwa-disabled) .safwa-dim {
   transition: opacity 0.2s var(--safwa-ease-out);
 }
 
-/* Exact duplicates may be collapsed (hidden). Data is retained in state. */
+/* Confirmed folds (duplicates, greetings, confirmed extras). The comments list
+ * is a virtual scroller: display:none removes the row but not its slot, leaving
+ * big blank gaps in the panel. Fade the row instead so StreamYard's geometry is
+ * never invalidated. CONFIG.COLLAPSE_MODE "hide" restores the old behavior. */
 html:not(.safwa-disabled) .safwa-collapsed {
+  opacity: 0.25;
+  filter: grayscale(40%);
+  transition: opacity 0.2s var(--safwa-ease-out);
+}
+
+html:not(.safwa-disabled) .safwa-collapsed.safwa-collapse-hide {
   display: none !important;
 }
 
@@ -116,7 +145,8 @@ html.safwa-disabled .safwa-badge {
   .safwa-badge {
     animation: none;
   }
-  html:not(.safwa-disabled) .safwa-dim {
+  html:not(.safwa-disabled) .safwa-dim,
+  html:not(.safwa-disabled) .safwa-collapsed {
     transition: none;
   }
 }
