@@ -102,7 +102,7 @@ function buildV2(variant) {
   return {
     manifest_version: 3,
     name: LEGACY_MANIFEST.name,
-    version: "2.0.3",
+    version: "2.0.4",
     description: LEGACY_MANIFEST.description,
     minimum_chrome_version: "116",
     icons: LEGACY_MANIFEST.icons,

@@ -42,6 +42,16 @@ check("on-air state is shared across collapsed copies", () => {
   assert.ok(sessionSrc.includes("groupShownState"), "repeats of one card share one on-air lamp");
 });
 
+check("collapse-off click stays on the card the teacher tapped", () => {
+  const clickBlock = sessionSrc.slice(sessionSrc.indexOf("async function handleFeatureRequest"));
+  assert.ok(clickBlock.includes("featureGroupIdsForClick"), "click group must match the projected card");
+  assert.equal(
+    clickBlock.includes("for (const otherId of decisions.keys())"),
+    false,
+    "must not expand every same-text duplicate when collapse is off"
+  );
+});
+
 check("a click does not steal another copy's native node", () => {
   assert.ok(sessionSrc.includes("pickLiveMatch"), "own connected anchor wins over last text match");
   assert.ok(sessionSrc.includes("bindOwnAnchor"), "one occurrence must not adopt another copy's node");
