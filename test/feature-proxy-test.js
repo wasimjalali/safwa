@@ -5,7 +5,12 @@
  */
 
 import assert from "node:assert/strict";
-import { checkFeatureRequest, featureGroupId, sameFeatureGroup } from "../src/proxy-rules.js";
+import {
+  checkFeatureRequest,
+  featureGroupId,
+  pickFeatureCandidate,
+  sameFeatureGroup,
+} from "../src/proxy-rules.js";
 
 let passed = 0;
 let failed = 0;
@@ -127,6 +132,56 @@ check("collapsed same-person copies are one feature group, not twins", () => {
     sameFeatureGroup("src_1", "src_9", { type: "primary" }, { type: "primary" }),
     false
   );
+});
+
+function cand(id, extra = {}) {
+  return {
+    id,
+    connected: true,
+    sameIdentity: true,
+    hasButton: true,
+    admissionSeq: Number(String(id).replace(/\D/g, "")) || 0,
+    ...extra,
+  };
+}
+
+check("a lone live row is the feature candidate", () => {
+  assert.equal(pickFeatureCandidate([cand("src_1", { admissionSeq: 1 })], { requestedId: "src_1" }), "src_1");
+});
+
+check("duplicate group features the newest live copy, not the first", () => {
+  assert.equal(
+    pickFeatureCandidate(
+      [cand("src_1", { admissionSeq: 1 }), cand("src_6", { admissionSeq: 6 }), cand("src_3", { admissionSeq: 3 })],
+      { requestedId: "src_1", wantOn: true }
+    ),
+    "src_6"
+  );
+});
+
+check("turning a comment off keeps the requested row", () => {
+  assert.equal(
+    pickFeatureCandidate(
+      [cand("src_1", { admissionSeq: 1 }), cand("src_6", { admissionSeq: 6 })],
+      { requestedId: "src_1", wantOn: false }
+    ),
+    "src_1"
+  );
+});
+
+check("disconnected or other-author copies are never substituted", () => {
+  assert.equal(
+    pickFeatureCandidate(
+      [
+        cand("src_1", { admissionSeq: 1, connected: false }),
+        cand("src_2", { admissionSeq: 2, sameIdentity: false }),
+        cand("src_3", { admissionSeq: 3 }),
+      ],
+      { requestedId: "src_1", wantOn: true }
+    ),
+    "src_3"
+  );
+  assert.equal(pickFeatureCandidate([], { requestedId: "src_1" }), null);
 });
 
 check("missing or duplicated button refuses", () => {

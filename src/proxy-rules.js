@@ -21,6 +21,23 @@ export function sameFeatureGroup(sourceId, otherId, sourceDecision, otherDecisio
 }
 
 /**
+ * Which same-group occurrence to click. A lone row stays that row. Several
+ * live copies of one question: put the newest on air — StreamYard often
+ * no-ops the first recycled slot. Turning off keeps the requested row.
+ * Another author's copy is never a candidate (`sameIdentity` must be true).
+ */
+export function pickFeatureCandidate(candidates, { requestedId, wantOn = true } = {}) {
+  const live = (candidates ?? []).filter(
+    (c) => c && c.connected && c.sameIdentity && c.hasButton
+  );
+  if (live.length === 0) return null;
+  if (live.length === 1 || wantOn === false) {
+    return live.find((c) => c.id === requestedId)?.id ?? live[0].id;
+  }
+  return live.slice().sort((a, b) => (b.admissionSeq ?? 0) - (a.admissionSeq ?? 0))[0].id;
+}
+
+/**
  * @param {object} facts
  * @param {object} facts.request   validated FEATURE_REQUEST payload
  * @param {{documentToken: string, sessionEpoch: number}} facts.session

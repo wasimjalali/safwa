@@ -15,7 +15,12 @@
  * The native StreamYard panel is never written to in any mode.
  */
 
-import { checkFeatureRequest as checkProxyRequest, sameFeatureGroup } from "./proxy-rules.js";
+import {
+  checkFeatureRequest as checkProxyRequest,
+  pickFeatureCandidate,
+  sameFeatureGroup,
+} from "./proxy-rules.js";
+import { hasLegacyMarks, restoreFeed, restoreRow } from "./native-restore.js";
 
 const TAG = "[Ṣafwa]";
 const DEBOUNCE_MS = 80;
@@ -191,6 +196,7 @@ export function startSession(deps) {
     const reattach = container !== null;
     container = next;
     console.log(`${TAG} comments container found; sidebar session active.`);
+    restoreFeed(container, () => dom.collectCommentNodes(container));
     for (const node of dom.collectCommentNodes(container)) pending.add(node);
     schedule();
 
@@ -277,6 +283,7 @@ export function startSession(deps) {
    *   - no registry hit -> admit a new occurrence
    */
   function handleRow(node) {
+    if (hasLegacyMarks(node)) restoreRow(node);
     const comment = dom.extractComment(node);
     if (!comment) return;
     if (admissionMod.isStreamYardSampleComment(comment)) return;
@@ -542,21 +549,47 @@ export function startSession(deps) {
 
   /* --------------------------------------------------------------- publish */
 
-  function pickConnectedFeatureId(preferredId, row) {
-    const preferred = anchors.get(preferredId);
-    if (preferred?.el?.isConnected) return preferredId;
+  function liveElementFor(record) {
+    if (!record) return null;
+    const matches = container ? dom.findMatchingCommentNodes(container, record) : [];
+    if (matches.length) return matches[matches.length - 1];
+    const anchor = anchors.get(record.sourceId);
+    if (!anchor?.el?.isConnected) return null;
+    return dom.commentMatches(dom.extractComment(anchor.el), record) ? anchor.el : null;
+  }
+
+  function featureCandidateFrom(preferredId, extraIds = []) {
     const prefRec = admission.getRecord(preferredId);
-    for (const member of row.members ?? []) {
-      const id = member?.sourceId;
-      if (!id || id === preferredId) continue;
-      const rec = admission.getRecord(id);
-      const anchor = anchors.get(id);
-      if (!anchor?.el?.isConnected || !prefRec || !rec) continue;
-      if ((rec.handle ?? "") !== (prefRec.handle ?? "")) continue;
-      if ((rec.platform ?? "") !== (prefRec.platform ?? "")) continue;
-      return id;
+    const ids = [preferredId];
+    for (const id of extraIds) {
+      if (id && !ids.includes(id)) ids.push(id);
     }
-    return preferredId;
+    const candidates = ids.map((id) => {
+      const rec = admission.getRecord(id);
+      const el = rec ? liveElementFor(rec) : null;
+      const button = el ? dom.findShowButton(el) : null;
+      return {
+        id,
+        connected: !!el,
+        sameIdentity: !!(
+          prefRec &&
+          rec &&
+          rec.handle === prefRec.handle &&
+          (rec.platform ?? "") === (prefRec.platform ?? "")
+        ),
+        hasButton: !!(button && !button.disabled),
+        admissionSeq: rec?.admissionSeq ?? 0,
+      };
+    });
+    return pickFeatureCandidate(candidates, {
+      requestedId: preferredId,
+      wantOn: prefRec?.shown !== "on",
+    });
+  }
+
+  function pickConnectedFeatureId(preferredId, row) {
+    const extraIds = (row.members ?? []).map((m) => m?.sourceId);
+    return featureCandidateFrom(preferredId, extraIds) ?? preferredId;
   }
 
   function currentProjection() {
@@ -778,22 +811,23 @@ export function startSession(deps) {
     ) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
-    let anchor = anchors.get(sourceId);
-    if (!anchor?.el?.isConnected && requested) {
-      for (const [otherId, other] of anchors) {
-        if (!other?.el?.isConnected) continue;
-        if (!sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) continue;
-        const rec = admission.getRecord(otherId);
-        if (!rec || rec.handle !== requested.handle) continue;
-        if ((rec.platform ?? "") !== (requested.platform ?? "")) continue;
-        sourceId = otherId;
-        anchor = other;
-        break;
+    if (container) restoreFeed(container, () => dom.collectCommentNodes(container));
+    const groupIds = [];
+    for (const otherId of decisions.keys()) {
+      if (sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) {
+        groupIds.push(otherId);
       }
     }
+    sourceId = featureCandidateFrom(sourceId, groupIds) ?? sourceId;
     const record = admission.getRecord(sourceId);
-    const anchorConnected = !!anchor?.el?.isConnected;
-    const live = anchorConnected ? dom.extractComment(anchor.el) : null;
+    const liveEl = liveElementFor(record);
+    if (liveEl) {
+      restoreRow(liveEl);
+      const held = anchors.get(sourceId);
+      if (held) held.el = liveEl;
+    }
+    const anchorConnected = !!liveEl?.isConnected;
+    const live = anchorConnected ? dom.extractComment(liveEl) : null;
     let twinCount = 0;
     if (live) {
       for (const [otherId, other] of anchors) {
@@ -810,7 +844,7 @@ export function startSession(deps) {
         }
       }
     }
-    const button = anchorConnected ? dom.findShowButton(anchor.el) : null;
+    const button = anchorConnected ? dom.findShowButton(liveEl) : null;
     const verdict = checkProxyRequest({
       request: {
         ...request,
@@ -830,7 +864,7 @@ export function startSession(deps) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
     if (!verdict.ok) return finish(request.requestId, refuse(verdict.reasonCode ?? "featureFindNative"));
-    const clicked = dom.clickShowButton(anchor.el);
+    const clicked = dom.clickShowButton(liveEl);
     if (!clicked) return finish(request.requestId, refuse("featureFindNative"));
     // One validated native click, then reflect on/off locally so the sidebar
     // icon stays in sync. A short cool-down blocks a second click (the native

@@ -38,6 +38,12 @@ check("the StreamYard example card is rejected before admission", () => {
   );
 });
 
+check("v2 never loads the in-place annotation layer", () => {
+  assert.equal(sessionSrc.includes("ui.js"), false, "session.js must not import ui.js");
+  assert.ok(sessionSrc.includes("restoreFeed"), "session.js must strip leftover v1 paint");
+  assert.ok(sessionSrc.includes("native-restore.js"), "restore lives outside session writes");
+});
+
 check("v2 session.js performs no native DOM writes", () => {
   for (const forbidden of [
     ".classList.add",
@@ -89,7 +95,7 @@ check("the only native action call in session.js is the validated click", () => 
   const writeCalls = calls.filter((c) =>
     ["dom.clickShowButton", "dom.findShowButton", "dom.extractComment", "dom.collectCommentNodes",
      "dom.commentNodesWithin", "dom.closestCommentNode", "dom.findCommentContainer", "dom.cardAnchor",
-     "dom.selectorsConfirmed"].includes(c)
+     "dom.selectorsConfirmed", "dom.findMatchingCommentNodes", "dom.commentMatches"].includes(c)
   );
   assert.equal(writeCalls.length, calls.length, "no unknown dom write API is used");
   assert.ok(sessionSrc.includes("dom.clickShowButton"), "the click goes through dom.js");
