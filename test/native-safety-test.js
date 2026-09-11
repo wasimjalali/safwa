@@ -27,6 +27,17 @@ const contentSrc = read("src/content.js");
 const panelSrc = read("panel/panel.js");
 const manifest = JSON.parse(read("manifest.json"));
 
+check("sendSnapshot has no leftover dbg() that would drop every reopen", () => {
+  assert.equal(sessionSrc.includes("dbg("), false, "dbg() throws and the sidebar gets no snapshot");
+});
+
+check("the StreamYard example card is rejected before admission", () => {
+  assert.ok(
+    sessionSrc.includes("isStreamYardSampleComment"),
+    "sample chrome must not enter the matching pipeline"
+  );
+});
+
 check("v2 session.js performs no native DOM writes", () => {
   for (const forbidden of [
     ".classList.add",

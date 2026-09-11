@@ -78,6 +78,8 @@ globalThis.chrome = {
   runtime: { getManifest: () => ({ version: "2.0.1" }), sendMessage() {} },
   tabs: {
     query: async () => [],
+    get: async () => { throw new Error("no tab"); },
+    sendMessage: async () => { throw new Error("no session"); },
     connect: () => ({ postMessage() {}, onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, disconnect() {} }),
     onActivated: { addListener() {} },
     onUpdated: { addListener() {} },

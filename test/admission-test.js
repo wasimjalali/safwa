@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CONFIG } from "../src/config.js";
-import { createAdmission, personKeyFor } from "../src/admission.js";
+import { createAdmission, isStreamYardSampleComment, personKeyFor } from "../src/admission.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = JSON.parse(
@@ -647,6 +647,31 @@ test("shownOffUntil blocks a lagging shownSet after the teacher toggles off", ()
   fake.set(2_001);
   api.applyStateEvents([{ kind: "shownSet", broadcastId: "b1", shownCommentIds: ["c1"] }]);
   assert.equal(rec.shown, "on", "after the latch, an explicit id is on");
+});
+
+test("StreamYard example chrome is not a viewer question", () => {
+  assert.equal(
+    isStreamYardSampleComment({
+      handle: "StreamYard",
+      displayText:
+        "Live viewer comments show up on StreamYard. This is an example. Clickable on a comment to show it on screen.",
+    }),
+    true
+  );
+  assert.equal(
+    isStreamYardSampleComment({
+      handle: "@iamwasim.jalali",
+      displayText: "سلام استاد، آیا نماز در سفر قصر خوانده میشود؟",
+    }),
+    false
+  );
+  assert.equal(
+    isStreamYardSampleComment({
+      handle: "StreamYard",
+      displayText: "استاد حکم آن چیست؟",
+    }),
+    false
+  );
 });
 
 test("sticky pending: a pre-click shownSet cannot re-arm a latched record", () => {

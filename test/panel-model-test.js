@@ -204,6 +204,32 @@ check("hidden greeting stays reachable in folded", () => {
   assert.equal(folded[0].sourceId, "src_1");
 });
 
+check("StreamYard example card is not numbered; first real question is ۱", () => {
+  const records = [
+    record(
+      "src_sample",
+      "StreamYard",
+      "Live viewer comments show up on StreamYard. This is an example. Clickable on a comment to show it on screen.",
+      500,
+      { platform: "" }
+    ),
+    record("src_1", "@iamwasim.jalali", "سلامم استاد، آیا نماز در سفر قصر خوانده میشود؟", 1000),
+    record("src_2", "@Wasim.Jalali", "استاد لطفا بفرمایید", 2000),
+  ];
+  const decisions = new Map([
+    ["src_sample", { type: "primary" }],
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "primary" }],
+  ]);
+  const { rows, folded } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 2);
+  assert.equal(folded.length, 0);
+  assert.equal(rows[0].primary.sourceId, "src_1");
+  assert.equal(rows[0].index, 1);
+  assert.equal(rows[0].indexLabel, "۱");
+  assert.equal(rows[1].indexLabel, "۲");
+});
+
 check("feature unavailable without dom anchor; on-air stays clickable", () => {
   const records = [
     record("src_1", "@a", "بدون لنگر", 1000, { domAnchor: false }),

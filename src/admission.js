@@ -71,6 +71,17 @@ function joinContents(contents) {
  * Same displayed name + different stable id = different people; renamed handle +
  * same stable id = same person.
  */
+/**
+ * StreamYard's own English example row is studio chrome, not a viewer question.
+ * Keep it in the native column; never number it in Ṣafwa.
+ */
+export function isStreamYardSampleComment(comment) {
+  const handle = str(comment?.handle).replace(/^@/, "").trim().toLowerCase();
+  if (handle !== "streamyard") return false;
+  const text = str(comment?.displayText).replace(/\s+/g, " ").trim();
+  return /this is an example/i.test(text) || /live viewer comments show up/i.test(text);
+}
+
 export function personKeyFor(record) {
   const platform = record?.platform ?? "?";
   if (typeof record?.authorPlatformId === "string" && record.authorPlatformId.length > 0) {

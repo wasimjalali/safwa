@@ -15,7 +15,7 @@
  * The native StreamYard panel is never written to in any mode.
  */
 
-import { checkFeatureRequest as checkProxyRequest } from "./proxy-rules.js";
+import { checkFeatureRequest as checkProxyRequest, sameFeatureGroup } from "./proxy-rules.js";
 
 const TAG = "[Ṣafwa]";
 const DEBOUNCE_MS = 80;
@@ -168,6 +168,11 @@ export function startSession(deps) {
   const ROWS_REQUIRED_UNTIL = Math.floor(CONTAINER_POLL_MAX * 0.7);
 
   function tryFind() {
+    const href = location.origin + location.pathname;
+    if (href !== lastHref) {
+      lastHref = href;
+      attempts = 0;
+    }
     const requireRows = attempts < ROWS_REQUIRED_UNTIL;
     const found = dom.findCommentContainer(document, { requireRows });
     if (found) {
@@ -220,6 +225,11 @@ export function startSession(deps) {
         resetSession({ reseed: false });
         return;
       }
+      const withRows = dom.findCommentContainer(document, { requireRows: true });
+      if (withRows && withRows !== container) {
+        attach(withRows);
+        return;
+      }
       if (container?.isConnected) return;
       clearInterval(watchdog);
       watchdog = null;
@@ -269,6 +279,7 @@ export function startSession(deps) {
   function handleRow(node) {
     const comment = dom.extractComment(node);
     if (!comment) return;
+    if (admissionMod.isStreamYardSampleComment(comment)) return;
     const fp = fingerprintOf(comment);
     const entry = occurrenceRegistry.get(fp);
     const holder = entry?.ref?.deref?.() ?? null;
@@ -531,10 +542,28 @@ export function startSession(deps) {
 
   /* --------------------------------------------------------------- publish */
 
+  function pickConnectedFeatureId(preferredId, row) {
+    const preferred = anchors.get(preferredId);
+    if (preferred?.el?.isConnected) return preferredId;
+    const prefRec = admission.getRecord(preferredId);
+    for (const member of row.members ?? []) {
+      const id = member?.sourceId;
+      if (!id || id === preferredId) continue;
+      const rec = admission.getRecord(id);
+      const anchor = anchors.get(id);
+      if (!anchor?.el?.isConnected || !prefRec || !rec) continue;
+      if ((rec.handle ?? "") !== (prefRec.handle ?? "")) continue;
+      if ((rec.platform ?? "") !== (prefRec.platform ?? "")) continue;
+      return id;
+    }
+    return preferredId;
+  }
+
   function currentProjection() {
     const projection = panelModel.buildViewRows(admission.records(), decisions, config);
     for (const row of projection.rows) {
-      const sourceId = row.feature?.targetSourceId ?? row.primary.sourceId;
+      const designated = row.feature?.targetSourceId ?? row.primary.sourceId;
+      const sourceId = pickConnectedFeatureId(designated, row);
       const anchor = anchors.get(sourceId);
       const record = admission.getRecord(sourceId);
       const avail = panelModel.featureAvailability({
@@ -610,7 +639,6 @@ export function startSession(deps) {
   }
 
   function sendSnapshot(port, rows, folded) {
-    dbg("snapshot:" + rows.length);
     port.safwaRevision = revision;
     port.postMessage(
       protocol.makeEnvelope(protocol.MESSAGE_TYPES.SNAPSHOT_BEGIN, {
@@ -672,6 +700,11 @@ export function startSession(deps) {
   function onPortMessage(port, message) {
     if (!message || typeof message !== "object") return;
     const type = message.type;
+    // The open port is the bind. Reset must not depend on a prior snapshot.
+    if (type === protocol.MESSAGE_TYPES.RESET_SESSION && ports.has(port)) {
+      resetSession();
+      return;
+    }
     if (protocol.isUnboundHandshake(message)) {
       // The port connection itself authorizes the handshake: reply with the
       // session identity so the panel can bind before anything else.
@@ -699,9 +732,6 @@ export function startSession(deps) {
         sendSnapshot(port, projection.rows, projection.folded);
         break;
       }
-      case protocol.MESSAGE_TYPES.RESET_SESSION:
-        resetSession();
-        break;
       case protocol.MESSAGE_TYPES.ACTION_STATUS: {
         const receipt = receipts.get(message.requestId);
         port.postMessage(
@@ -739,15 +769,36 @@ export function startSession(deps) {
       const prior = receipts.get(request.requestId);
       return { outcome: prior.outcome, reasonCode: prior.reasonCode };
     }
-    const sourceId = request.targetSourceId ?? request.sourceId;
+    let sourceId = request.targetSourceId ?? request.sourceId;
+    const requested = admission.getRecord(sourceId);
+    if (
+      typeof request.sourceRevision === "number" &&
+      requested &&
+      request.sourceRevision !== requested.admissionSeq
+    ) {
+      return finish(request.requestId, refuse("featureFindNative"));
+    }
+    let anchor = anchors.get(sourceId);
+    if (!anchor?.el?.isConnected && requested) {
+      for (const [otherId, other] of anchors) {
+        if (!other?.el?.isConnected) continue;
+        if (!sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) continue;
+        const rec = admission.getRecord(otherId);
+        if (!rec || rec.handle !== requested.handle) continue;
+        if ((rec.platform ?? "") !== (requested.platform ?? "")) continue;
+        sourceId = otherId;
+        anchor = other;
+        break;
+      }
+    }
     const record = admission.getRecord(sourceId);
-    const anchor = anchors.get(sourceId);
     const anchorConnected = !!anchor?.el?.isConnected;
     const live = anchorConnected ? dom.extractComment(anchor.el) : null;
     let twinCount = 0;
     if (live) {
       for (const [otherId, other] of anchors) {
         if (otherId === sourceId || !other?.el?.isConnected) continue;
+        if (sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) continue;
         const otherLive = dom.extractComment(other.el);
         if (
           otherLive &&
@@ -761,7 +812,11 @@ export function startSession(deps) {
     }
     const button = anchorConnected ? dom.findShowButton(anchor.el) : null;
     const verdict = checkProxyRequest({
-      request,
+      request: {
+        ...request,
+        sourceRevision:
+          typeof record?.admissionSeq === "number" ? record.admissionSeq : request.sourceRevision,
+      },
       session: { documentToken, sessionEpoch },
       record: record ?? null,
       anchorConnected,

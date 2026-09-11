@@ -8,6 +8,18 @@
 
 export const REFUSE = "featureFindNative";
 
+/** Duplicate copies fold onto one card; they are not ambiguous twins. */
+export function featureGroupId(sourceId, decision) {
+  if (decision?.type === "duplicate" && typeof decision.targetSourceId === "string" && decision.targetSourceId) {
+    return decision.targetSourceId;
+  }
+  return sourceId;
+}
+
+export function sameFeatureGroup(sourceId, otherId, sourceDecision, otherDecision) {
+  return featureGroupId(sourceId, sourceDecision) === featureGroupId(otherId, otherDecision);
+}
+
 /**
  * @param {object} facts
  * @param {object} facts.request   validated FEATURE_REQUEST payload
