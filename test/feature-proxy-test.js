@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { checkFeatureRequest } from "../src/proxy-rules.js";
+import { checkFeatureRequest, featureGroupId, sameFeatureGroup } from "../src/proxy-rules.js";
 
 let passed = 0;
 let failed = 0;
@@ -114,6 +114,19 @@ check("recycled row content mismatch refuses", () => {
 
 check("indistinguishable twins refuse", () => {
   assert.equal(checkFeatureRequest({ ...happy, twinCount: 1 }).ok, false);
+});
+
+check("collapsed same-person copies are one feature group, not twins", () => {
+  assert.equal(featureGroupId("src_2", { type: "duplicate", targetSourceId: "src_1" }), "src_1");
+  assert.equal(featureGroupId("src_1", { type: "primary" }), "src_1");
+  assert.equal(
+    sameFeatureGroup("src_1", "src_2", { type: "primary" }, { type: "duplicate", targetSourceId: "src_1" }),
+    true
+  );
+  assert.equal(
+    sameFeatureGroup("src_1", "src_9", { type: "primary" }, { type: "primary" }),
+    false
+  );
 });
 
 check("missing or duplicated button refuses", () => {

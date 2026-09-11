@@ -102,13 +102,13 @@ function buildV2(variant) {
   return {
     manifest_version: 3,
     name: LEGACY_MANIFEST.name,
-    version: "2.0.1",
+    version: "2.0.2",
     description: LEGACY_MANIFEST.description,
     minimum_chrome_version: "116",
     icons: LEGACY_MANIFEST.icons,
     background: { service_worker: "src/sw.js", type: "module" },
     side_panel: { default_path: "panel/panel.html" },
-    permissions: ["storage", "activeTab", "sidePanel"],
+    permissions: ["storage", "activeTab", "sidePanel", "scripting"],
     action: {
       default_title: LEGACY_MANIFEST.action.default_title,
       default_icon: LEGACY_MANIFEST.action.default_icon,

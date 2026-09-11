@@ -11,7 +11,10 @@
  *
  * Reachability is a hard requirement (spec criterion 11): every record ends up
  * either as a row, a duplicate member, a joined fragment, or in `folded`.
+ * StreamYard's example card is studio chrome and is excluded before numbering.
  */
+
+import { isStreamYardSampleComment } from "./admission.js";
 
 export const PLATFORM_ICONS = {
   youtube:
@@ -182,6 +185,7 @@ export function buildViewRows(records, decisions, config) {
   // Pass 1: rows for non-duplicate, non-hidden, non-continuation-tail records.
   // A split question is one card: later fragments attach in pass 2.
   for (const record of bySource.values()) {
+    if (isStreamYardSampleComment(record)) continue;
     const { decision } = rowBySource.get(record.sourceId);
     const type = decision?.type ?? "primary";
 

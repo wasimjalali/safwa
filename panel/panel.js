@@ -6,6 +6,7 @@
  */
 
 import { CONFIG, STORAGE_KEYS } from "../src/config.js";
+import { isStreamYardUrl, readPinnedTabId } from "../src/inject.js";
 import { platformIcon } from "../src/panel-model.js";
 import { MESSAGE_TYPES, PORT_NAME, makeEnvelope } from "../src/protocol.js";
 
@@ -126,18 +127,37 @@ function nearEnd() {
 }
 
 let rebindAttempts = 0;
+let rebindTimer = 0;
 function scheduleRebind() {
+  if (rebindTimer) return;
   rebindAttempts += 1;
   const delay = rebindAttempts <= 1 ? 100 : rebindAttempts === 2 ? 500 : rebindAttempts === 3 ? 1500 : 5000;
-  setTimeout(() => {
+  rebindTimer = setTimeout(() => {
+    rebindTimer = 0;
     bindTab().catch(() => scheduleRebind());
   }, delay);
 }
 
 async function bindTab() {
-  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const tab = tabs[0];
-  const isStudio = tab && /^https:\/\/([a-z0-9-]+\.)?streamyard\.com\//i.test(tab.url ?? "");
+  const pinned = readPinnedTabId(globalThis.location?.search ?? "");
+  let tab = null;
+  if (typeof pinned === "number") {
+    try {
+      tab = await chrome.tabs.get(pinned);
+    } catch {
+      tab = null;
+    }
+  }
+  if (!tab) {
+    try {
+      const win = await chrome.windows.getCurrent();
+      const tabs = await chrome.tabs.query({ active: true, windowId: win.id });
+      tab = tabs[0] ?? null;
+    } catch {
+      tab = null;
+    }
+  }
+  const isStudio = tab && isStreamYardUrl(tab.url ?? "");
   if (!isStudio) {
     port?.disconnect();
     port = null;
@@ -146,9 +166,20 @@ async function bindTab() {
     model.clear();
     rowEls.clear();
     list.replaceChildren();
+    // Icon click names a tab; retry only while that tab or its URL is not ready yet.
+    if (typeof pinned === "number" && (!tab || !tab.url)) scheduleRebind();
     return;
   }
   if (port && tabId === tab.id) return;
+  const ready = await tabHasSession(tab.id);
+  if (!ready) {
+    chrome.runtime.sendMessage({ type: "safwa-ensure", tabId: tab.id }, () => {
+      void chrome.runtime.lastError;
+    });
+    setStatus(L.panelLoading);
+    scheduleRebind();
+    return;
+  }
   port?.disconnect();
   // Never leave another studio's actionable list visible.
   model.clear();
@@ -160,6 +191,7 @@ async function bindTab() {
   port = chrome.tabs.connect(tab.id, { name: PORT_NAME, frameId: 0 });
   port.onMessage.addListener(onPortMessage);
   port.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError;
     port = null;
     tabId = null;
     boundTab = false;
@@ -173,6 +205,18 @@ async function bindTab() {
   port.postMessage(makeEnvelope(MESSAGE_TYPES.SUBSCRIBE, { documentToken: null, sessionEpoch: null }));
   setStatus(L.panelLoading);
   rebindAttempts = 0;
+}
+
+function tabHasSession(id) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(id, { type: "safwa-ping" }, (res) => {
+        resolve(!chrome.runtime.lastError && res?.ok === true);
+      });
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 function isForThisSession(message) {
@@ -528,6 +572,7 @@ function requestFeature(row, button) {
     },
   });
   chrome.runtime.sendMessage(request, (result) => {
+    void chrome.runtime.lastError;
     const entry = pendingFeature.get(requestId);
     if (entry && result) {
       pendingFeature.delete(requestId);

@@ -14,6 +14,9 @@
 (function () {
   "use strict";
 
+  if (globalThis.__safwaContentBooted) return;
+  globalThis.__safwaContentBooted = true;
+
   const TAG = "[Ṣafwa]";
   const VERSION = chrome.runtime?.getManifest?.().version ?? "?";
 
