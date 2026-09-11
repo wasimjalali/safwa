@@ -27,7 +27,10 @@ export const PLATFORM_ICONS = {
 /** Bundled platform glyph; unknown platforms get the neutral globe. */
 export function platformIcon(platform) {
   const key = String(platform || "").toLowerCase();
-  return PLATFORM_ICONS[key] || PLATFORM_ICONS.fallback;
+  if (!Object.prototype.hasOwnProperty.call(PLATFORM_ICONS, key)) {
+    return PLATFORM_ICONS.fallback;
+  }
+  return PLATFORM_ICONS[key];
 }
 
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";

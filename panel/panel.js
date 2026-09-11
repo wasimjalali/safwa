@@ -534,6 +534,7 @@ function requestFeature(row, button) {
     } catch {
       port = null;
       tabId = null;
+      scheduleRebind();
     }
     // Keep the entry briefly so a refused ACTION_STATUS can still re-enable.
     setTimeout(() => pendingFeature.delete(requestId), 5000);

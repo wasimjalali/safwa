@@ -607,7 +607,6 @@ export function startSession(deps) {
 
   function sendSnapshot(port, rows, folded) {
     dbg("snapshot:" + rows.length);
-    port.safwaRowIds = new Set(rows.map((row) => row.rowId));
     port.safwaRevision = revision;
     port.postMessage(
       protocol.makeEnvelope(protocol.MESSAGE_TYPES.SNAPSHOT_BEGIN, {
