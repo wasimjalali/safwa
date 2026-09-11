@@ -52,7 +52,8 @@ export function startSession(deps) {
   let health = healthMod.createHealth(config);
   let wsState = config.WS_MODE === "off" ? "off" : "starting";
   let bridgeHandshakeSeen = false;
-  let lastQueueDropped = 0;
+  let rebuildEpoch = 0;
+  const lastQueueDroppedByKey = new Map();
   let masterEnabled = true;
   let lastHref = location.origin + location.pathname;
 
@@ -411,6 +412,8 @@ export function startSession(deps) {
       decision,
       sourceId,
       admittedAt: admission.getRecord(sourceId)?.admittedAt ?? Date.now(),
+      settingsRevision,
+      rebuildEpoch,
     });
     if (llmQueue.length > LLM_QUEUE_MAX) llmQueue.splice(0, llmQueue.length - LLM_QUEUE_MAX);
     drainLlm();
@@ -434,7 +437,8 @@ export function startSession(deps) {
     const guard = {
       documentToken,
       sessionEpoch,
-      settingsRevision,
+      settingsRevision: job.settingsRevision,
+      rebuildEpoch: job.rebuildEpoch,
       sourceId,
       contentRevision: admission.getRecord(sourceId)?.admissionSeq ?? 0,
       contentText: comment.displayText,
@@ -448,16 +452,19 @@ export function startSession(deps) {
       );
       llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
       if (!result) {
-        llmFailures.push(Date.now());
-        if (llmFailures.length >= 3) {
-          llmPausedUntil = Date.now() + LLM_PAUSE_MS;
-          llmFailures = [];
+        if (config.LLM_ENABLED) {
+          llmFailures.push(Date.now());
+          if (llmFailures.length >= 3) {
+            llmPausedUntil = Date.now() + LLM_PAUSE_MS;
+            llmFailures = [];
+          }
         }
         return;
       }
       if (guard.documentToken !== documentToken) return;
       if (guard.sessionEpoch !== sessionEpoch) return;
       if (guard.settingsRevision !== settingsRevision) return;
+      if (guard.rebuildEpoch !== rebuildEpoch) return;
       const record = admission.getRecord(sourceId);
       if (!record || record.admissionSeq !== guard.contentRevision) return;
       if (record.displayText !== guard.contentText) return;
@@ -484,6 +491,7 @@ export function startSession(deps) {
   /* ----------------------------------------------------- settings rebuild */
 
   function rebuildFromRecords() {
+    rebuildEpoch += 1;
     state = stateMod.createState();
     decisions.clear();
     const ordered = admission.records().slice().sort((a, b) => a.admissionSeq - b.admissionSeq);
@@ -765,7 +773,10 @@ export function startSession(deps) {
     if (!clicked) return finish(request.requestId, refuse("featureFindNative"));
     // Latch the one validated click in the model: every later snapshot/rebuild
     // must keep the button disabled so it can never toggle the comment off air.
-    if (record) record.shown = "pending";
+    if (record) {
+      record.shown = "pending";
+      record.clickedAt = Date.now();
+    }
     return finish(request.requestId, FEATURE_OK);
   }
 
@@ -822,8 +833,9 @@ export function startSession(deps) {
       health.noteBridgeFrame(envelope.endpointKey);
       try {
         const stats = JSON.parse(envelope.data || "{}");
-        if (typeof stats.queueDropped === "number" && stats.queueDropped > lastQueueDropped) {
-          lastQueueDropped = stats.queueDropped;
+        const prior = lastQueueDroppedByKey.get(envelope.endpointKey) ?? 0;
+        if (typeof stats.queueDropped === "number" && stats.queueDropped > prior) {
+          lastQueueDroppedByKey.set(envelope.endpointKey, stats.queueDropped);
           // A dropped frame is a loss signal: count it toward demotion (spec §8 row 18).
           health.noteParse("malformed", envelope.endpointKey);
         }

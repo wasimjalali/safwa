@@ -163,6 +163,9 @@ async function bindTab() {
     port = null;
     tabId = null;
     boundTab = false;
+    bound.token = null;
+    bound.epoch = null;
+    bound.revision = 0;
     setStatus(L.panelDisconnected);
     scheduleRebind();
   });
@@ -347,7 +350,15 @@ function emptyNode(text) {
 }
 
 function rowKey(row) {
-  return JSON.stringify([row.primary.displayText, row.badges, row.feature, row.shown, row.starred]);
+  return JSON.stringify([
+    row.primary.displayText,
+    row.badges,
+    row.feature,
+    row.shown,
+    row.starred,
+    row.joinedFragments ?? null,
+    row.members ?? null,
+  ]);
 }
 
 export function renderRow(row) {
@@ -512,7 +523,6 @@ function requestFeature(row, button) {
   setTimeout(() => {
     const entry = pendingFeature.get(requestId);
     if (!entry) return;
-    pendingFeature.delete(requestId); // one-shot: a late reply is ignored
     // Never re-enable on an unknown outcome: a second click could toggle the
     // broadcast off. Ask the content session for the recorded outcome.
     entry.resolve({ outcome: "unknown", reasonCode: "featureCheckBroadcast" });
@@ -524,6 +534,8 @@ function requestFeature(row, button) {
       port = null;
       tabId = null;
     }
+    // Keep the entry briefly so a refused ACTION_STATUS can still re-enable.
+    setTimeout(() => pendingFeature.delete(requestId), 5000);
   }, CONFIG.FEATURE_PROXY.ackTimeoutMs);
 }
 

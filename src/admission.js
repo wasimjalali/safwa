@@ -522,7 +522,16 @@ export function createAdmission(config, { now = () => Date.now() } = {}) {
             if (broadcastId && record.broadcastId && record.broadcastId !== broadcastId) {
               continue;
             }
-            const next = shown.has(record.commentId) ? "on" : "unknown";
+            let next;
+            if (shown.has(record.commentId)) {
+              next = "on";
+            } else if (record.shown === "pending") {
+              // Sticky latch: a snapshot generated before our validated click
+              // must not re-arm the button (measured snapshot lag ~10s).
+              next = "pending";
+            } else {
+              next = "unknown";
+            }
             if (record.shown !== next) {
               record.shown = next;
               out.updated.push(record);
