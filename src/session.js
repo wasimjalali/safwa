@@ -18,6 +18,8 @@
 import {
   checkFeatureRequest as checkProxyRequest,
   pickFeatureCandidate,
+  pickLiveMatch,
+  ownerIdForElement,
   groupShownState,
   sameFeatureGroup,
 } from "./proxy-rules.js";
@@ -577,11 +579,40 @@ export function startSession(deps) {
 
   function liveElementFor(record) {
     if (!record) return null;
+    const held = anchors.get(record.sourceId);
+    const ownEl = held?.el?.isConnected ? held.el : null;
+    let ownMatches = false;
+    if (ownEl) {
+      try {
+        ownMatches = dom.commentMatches(dom.extractComment(ownEl), record);
+      } catch {
+        ownMatches = false;
+      }
+    }
     const matches = container ? dom.findMatchingCommentNodes(container, record) : [];
-    if (matches.length) return matches[matches.length - 1];
-    const anchor = anchors.get(record.sourceId);
-    if (!anchor?.el?.isConnected) return null;
-    return dom.commentMatches(dom.extractComment(anchor.el), record) ? anchor.el : null;
+    const claimed = new Set();
+    for (const [id, anchor] of anchors) {
+      if (id === record.sourceId || !anchor?.el?.isConnected) continue;
+      claimed.add(anchor.el);
+    }
+    return pickLiveMatch({ ownEl, ownMatches, matches, claimed });
+  }
+
+  function bindOwnAnchor(sourceId, el) {
+    if (!el) return;
+    for (const [id, held] of anchors) {
+      if (id !== sourceId && held?.el === el) return;
+    }
+    const held = anchors.get(sourceId);
+    if (held) held.el = el;
+  }
+
+  function sourceIdOwning(el, fallbackId) {
+    const holdings = [];
+    for (const [id, held] of anchors) {
+      if (held?.el) holdings.push([id, held.el]);
+    }
+    return ownerIdForElement(el, holdings, fallbackId);
   }
 
   function featureCandidateFrom(preferredId, extraIds = [], wantOn) {
@@ -639,10 +670,7 @@ export function startSession(deps) {
         groupIds[0];
       const record = admission.getRecord(sourceId);
       const liveEl = liveElementFor(record);
-      if (liveEl) {
-        const held = anchors.get(sourceId);
-        if (held) held.el = liveEl;
-      }
+      bindOwnAnchor(sourceId, liveEl);
       const avail = panelModel.featureAvailability({
         enabled: config.FEATURE_PROXY_ENABLED === true,
         sidebar: config.PANEL_MODE === "sidebar",
@@ -868,11 +896,9 @@ export function startSession(deps) {
       sourceId;
     const record = admission.getRecord(sourceId);
     const liveEl = liveElementFor(record);
-    if (liveEl) {
-      restoreRow(liveEl);
-      const held = anchors.get(sourceId);
-      if (held) held.el = liveEl;
-    }
+    if (liveEl) restoreRow(liveEl);
+    bindOwnAnchor(sourceId, liveEl);
+    const clickedRec = admission.getRecord(sourceIdOwning(liveEl, sourceId)) ?? record;
     const anchorConnected = !!liveEl?.isConnected;
     const live = anchorConnected ? dom.extractComment(liveEl) : null;
     let twinCount = 0;
@@ -916,24 +942,30 @@ export function startSession(deps) {
     // One validated native click, then reflect on/off locally so the sidebar
     // icon stays in sync. A short cool-down blocks a second click (the native
     // control is a toggle). WS shownSet still overrides in enrich/primary.
-    if (record) {
-      const wasOn = record.shown === "on";
+    if (clickedRec) {
+      const wasOn = groupShown === "on";
       const wsReflectsShown = config.WS_MODE === "enrich" || config.WS_MODE === "primary";
       const coolMs = config.FEATURE_PROXY?.ackTimeoutMs ?? 1000;
       const offLatchMs = config.WS_LIMITS?.featureStateMs ?? 15000;
       if (wasOn) {
-        record.shown = "unknown";
-        record.shownOffUntil = Date.now() + offLatchMs;
+        for (const id of groupIds) {
+          const rec = admission.getRecord(id);
+          if (!rec) continue;
+          if (rec.shown === "on" || rec.shown === "pending") {
+            rec.shown = "unknown";
+            rec.shownOffUntil = Date.now() + offLatchMs;
+          }
+        }
       } else if (wsReflectsShown) {
-        record.shown = "pending";
-        record.shownOffUntil = 0;
+        clickedRec.shown = "pending";
+        clickedRec.shownOffUntil = 0;
       } else {
-        record.shown = "on";
-        record.shownOffUntil = 0;
+        clickedRec.shown = "on";
+        clickedRec.shownOffUntil = 0;
       }
       // Request-time only: do not bake cooling into the published row or the
       // icon stays disabled until some later comment republishes.
-      record.featureCoolingUntil = Date.now() + coolMs;
+      clickedRec.featureCoolingUntil = Date.now() + coolMs;
     }
     publish(false);
     return finish(request.requestId, FEATURE_OK);

@@ -9,6 +9,8 @@ import {
   checkFeatureRequest,
   featureGroupId,
   pickFeatureCandidate,
+  pickLiveMatch,
+  ownerIdForElement,
   groupShownState,
   sameFeatureGroup,
 } from "../src/proxy-rules.js";
@@ -145,6 +147,30 @@ function cand(id, extra = {}) {
     ...extra,
   };
 }
+
+check("pickLiveMatch prefers the occurrence's own node over a later copy", () => {
+  const own = { id: "own" };
+  const newer = { id: "newer" };
+  assert.equal(
+    pickLiveMatch({ ownEl: own, ownMatches: true, matches: [own, newer], claimed: new Set() }),
+    own
+  );
+});
+
+check("pickLiveMatch falls back to the last unclaimed match", () => {
+  const older = { id: "older" };
+  const newer = { id: "newer" };
+  assert.equal(
+    pickLiveMatch({ ownEl: null, ownMatches: false, matches: [older, newer], claimed: new Set([older]) }),
+    newer
+  );
+});
+
+check("shown follows the node that was clicked", () => {
+  const a = { id: "a" };
+  const b = { id: "b" };
+  assert.equal(ownerIdForElement(b, [["src_1", a], ["src_6", b]], "src_1"), "src_6");
+});
 
 check("a lone live row is the feature candidate", () => {
   assert.equal(pickFeatureCandidate([cand("src_1", { admissionSeq: 1 })], { requestedId: "src_1" }), "src_1");

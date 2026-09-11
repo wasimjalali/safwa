@@ -20,6 +20,28 @@ export function sameFeatureGroup(sourceId, otherId, sourceDecision, otherDecisio
   return featureGroupId(sourceId, sourceDecision) === featureGroupId(otherId, otherDecision);
 }
 
+/**
+ * Which mounted node belongs to one occurrence. Prefer that record's own
+ * connected matching anchor. Fall back to the last match no other copy owns.
+ */
+export function pickLiveMatch({ ownEl, ownMatches, matches, claimed } = {}) {
+  if (ownEl && ownMatches) return ownEl;
+  const list = Array.isArray(matches) ? matches : [];
+  const taken = claimed instanceof Set ? claimed : new Set(claimed ?? []);
+  const unclaimed = list.filter((el) => !taken.has(el));
+  const pool = unclaimed.length ? unclaimed : list;
+  return pool.length ? pool[pool.length - 1] : null;
+}
+
+/** The occurrence that already owns this node; otherwise the fallback id. */
+export function ownerIdForElement(el, holdings, fallbackId) {
+  if (!el) return fallbackId ?? null;
+  for (const [id, heldEl] of holdings ?? []) {
+    if (heldEl === el) return id;
+  }
+  return fallbackId ?? null;
+}
+
 /** Collapsed copies share one on-air lamp; a later repeat must not clear it. */
 export function groupShownState(states) {
   const list = Array.isArray(states) ? states : [];
