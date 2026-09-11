@@ -226,7 +226,7 @@ export const CONFIG = {
     semanticDuplicate: "شاید تکراری باشد", // same wording as possibleDuplicate; teacher sees one idea
 
     // Popup (the bar that opens when the extension icon is clicked).
-    popupTagline: "فلتر سوالات پخش زنده",          // "live stream question filter"
+    popupTagline: "فلتر سوالات برنامه زنده",          // "live stream question filter"
     popupStatusOn: "فعال",                          // "on"
     popupStatusOff: "غیرفعال",                      // "off"
     popupHintOn: "سوال‌های تکراری کم‌رنگ جمع می‌شوند و سوال دوم هر نفر مشخص می‌شود",
@@ -255,13 +255,13 @@ export const CONFIG = {
       "هیچ ردیفی به‌خاطر تکرار پنهان نمی‌شود.",
     ],
 
-    settingHideExtra: "کم‌رنگ کردن سوال دوم هر نفر",
+    settingHideExtra: "پنهان کردن سوال دوم هر نفر",
     settingHideExtraOn: [
-      "اگر یک نفر سوال جداگانهٔ دیگری بفرستد، بعد از تأیید کم‌رنگ می‌شود.",
+      "اگر یک نفر سوال جداگانهٔ دیگری بفرستد، بعد از تأیید از ستون پنهان می‌شود.",
+      "در «نظرهای جمع‌شده» همچنان قابل دیدن است.",
     ],
     settingHideExtraOff: [
-      "سوال دوم همان‌جا می‌ماند.",
-      "فقط کم‌رنگ می‌شود تا مشخص باشد سوال اول نیست.",
+      "سوال دوم در ستون می‌ماند و با نشانهٔ «سوال دوم این شخص» مشخص می‌شود.",
     ],
 
     settingJoin: "وصل کردن ادامه‌ی سوال",
@@ -287,10 +287,10 @@ export const CONFIG = {
       "معنی یکسان با کلمه‌های مختلف دیگر با هم مقایسه نمی‌شود.",
     ],
 
-    resetSession: "شروع تازه برای این پخش",
-    resetDone: "حافظهٔ این پخش پاک شد.",
+    resetSession: "شروع تازه برای این برنامه",
+    resetDone: "حافظهٔ این برنامه پاک شد.",
     resetWhat: [
-      "صفوة سوال‌هایی را که تا حالا در این پخش دیده از یاد می‌برد.",
+      "صفوة سوال‌هایی را که تا حالا در این برنامه دیده از یاد می‌برد.",
       "از الان از نو می‌شمارد.",
     ],
     resetNot: [
@@ -299,10 +299,11 @@ export const CONFIG = {
     ],
 
     // --- v2 sidebar chrome (spec Section 9.2) ---
-    panelTitle: "صفوة — سوال‌های پخش",
+    panelTitle: "صفوة — سوال‌های برنامه زنده",
     panelLoading: "در حال آماده شدن…",
     panelWaiting: "در انتظار سوال‌ها",
     panelOpenStudio: "استودیوی StreamYard را باز کنید",
+    filterLabel: "فیلتر سوال‌ها",
     panelDisconnected: "اتصال قطع است؛ ستون اصلی را ببینید",
     panelKeepCommentsOpen: "ستون نظرات StreamYard را باز نگه دارید",
     panelSimpleMode: "حالت ساده",
@@ -312,11 +313,11 @@ export const CONFIG = {
     platformUnknown: "نامشخص",
 
     // --- v2 feature proxy ---
-    featureShow: "نمایش در پخش",
+    featureShow: "نمایش در برنامه زنده",
     featureShowFirst: "نمایش بخش اول",
     featureFindNative: "برای نمایش، نظر را در ستون اصلی پیدا کنید",
-    featureCheckBroadcast: "نمایش را در پخش بررسی کنید",
-    featureOnAir: "روی پخش",
+    featureCheckBroadcast: "نمایش را در برنامه زنده بررسی کنید",
+    featureOnAir: "روی برنامه زنده",
     featureStarred: "ستاره‌دار",
   },
 };

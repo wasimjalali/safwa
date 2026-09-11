@@ -13,6 +13,23 @@
  * either as a row, a duplicate member, a joined fragment, or in `folded`.
  */
 
+export const PLATFORM_ICONS = {
+  youtube:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.4 31.4 0 0 0 0 12a31.4 31.4 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.4 31.4 0 0 0 24 12a31.4 31.4 0 0 0-.5-5.8z" fill="#FF0000"/><path d="M9.6 15.6V8.4L15.8 12l-6.2 3.6z" fill="#fff"/></svg>',
+  facebook:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path d="M16.7 15.5l.5-3.5h-3.3V9.7c0-.9.5-1.8 1.9-1.8h1.5V5s-1.3-.2-2.6-.2c-2.7 0-4.5 1.6-4.5 4.6V12h-3v3.5h3v8.4a12 12 0 0 0 3.7 0v-8.4h2.8z" fill="#fff"/></svg>',
+  instagram:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#E4405F"/><circle cx="12" cy="12" r="4.6" fill="none" stroke="#fff" stroke-width="1.9"/><circle cx="17.4" cy="6.6" r="1.3" fill="#fff"/></svg>',
+  fallback:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+};
+
+/** Bundled platform glyph; unknown platforms get the neutral globe. */
+export function platformIcon(platform) {
+  const key = String(platform || "").toLowerCase();
+  return PLATFORM_ICONS[key] || PLATFORM_ICONS.fallback;
+}
+
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
 
 function digits(n, persian) {
@@ -109,6 +126,12 @@ export function buildViewRows(records, decisions, config) {
       }));
     }
     if (type === "extra") {
+      if (decision?.hide) {
+        // The teacher asked for one question per person: a confirmed second
+        // question is folded (reachable below), never silently dropped.
+        folded.push(memberShape(record));
+        continue;
+      }
       row.badges.secondQuestion = true;
     }
     if (decision?.pendingReview) {

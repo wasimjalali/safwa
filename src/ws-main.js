@@ -248,6 +248,7 @@
 
     socket.addEventListener("error", function () {
       try {
+        if (openSockets[id]) delete openSockets[id];
         if (!stopped) enqueue("lifecycle", key, id, gen, ++state.seq, LIFECYCLE.error);
       } catch (e) {
         // Fail safe.

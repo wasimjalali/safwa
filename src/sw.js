@@ -7,6 +7,7 @@
  */
 
 import { MESSAGE_TYPES, PORT_NAME, validateFeatureRequest } from "./protocol.js";
+import { STORAGE_KEYS } from "./config.js";
 
 const STREAMYARD = /^https:\/\/([a-z0-9-]+\.)?streamyard\.com\//i;
 
@@ -26,7 +27,7 @@ chrome.action.onClicked.addListener((tab) => {
     // Ignore; the panel may already be open or unsupported.
   }
   if (tab?.url && STREAMYARD.test(tab.url)) {
-    chrome.storage.local.set({ safwaEnabled: true }).catch(() => {});
+    chrome.storage.local.set({ [STORAGE_KEYS.enabled]: true }).catch(() => {});
   }
 });
 

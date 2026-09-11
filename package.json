@@ -1,11 +1,11 @@
 {
   "name": "safwa",
-  "version": "1.0.5",
+  "version": "2.0.0",
   "private": true,
   "description": "\u1e62afwa (\u0635\u0641\u0648\u0629) - Chrome MV3 live Q&A filter for Dari/Persian StreamYard comments. Regex plus Gemma 4: collapse duplicates, join split questions, one question per person.",
   "type": "module",
   "scripts": {
-    "test": "node test/run-tests.js && node test/ws-parser-test.js && node test/health-test.js && node test/admission-test.js && node test/protocol-test.js && node test/panel-model-test.js && node test/content-retry-test.js && node test/content-virtualization-test.js && node test/content-virtual-anchor-test.js && node test/content-llm-stale-test.js && node test/content-count-recycle-test.js && node test/ui-safety-test.js",
+    "test": "node test/run-tests.js && node test/ws-parser-test.js && node test/health-test.js && node test/admission-test.js && node test/protocol-test.js && node test/panel-model-test.js && node test/feature-proxy-test.js && node test/native-safety-test.js && node test/panel-render-test.js && node test/content-retry-test.js && node test/content-virtualization-test.js && node test/content-virtual-anchor-test.js && node test/content-llm-stale-test.js && node test/content-count-recycle-test.js && node test/ui-safety-test.js",
     "build:manifest": "node tools/build-manifest.js",
     "replay": "node test/replay-analysis.js",
     "demo": "python3 -m http.server 8000"

@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { buildViewRows, describeHealth } from "../src/panel-model.js";
+import { buildViewRows, describeHealth, platformIcon, PLATFORM_ICONS } from "../src/panel-model.js";
 import { CONFIG } from "../src/config.js";
 
 let passed = 0;
@@ -97,11 +97,31 @@ check("continuation exposes fragments and first-fragment label", () => {
   assert.equal(joined.feature.labelKey, "featureShowFirst");
 });
 
-check("extra question is badged and dimmed class path", () => {
+check("unconfirmed extra stays visible with the second-question badge", () => {
   const records = [record("src_1", "@a", "سوال دوم", 1000)];
-  const decisions = new Map([["src_1", { type: "extra" }]]);
-  const { rows } = buildViewRows(records, decisions, config);
+  const decisions = new Map([["src_1", { type: "extra", hide: false }]]);
+  const { rows, folded } = buildViewRows(records, decisions, config);
   assert.equal(rows[0].badges.secondQuestion, true);
+  assert.equal(folded.length, 0);
+});
+
+check("confirmed extra is hidden but stays reachable in folded", () => {
+  const records = [record("src_1", "@a", "سوال دوم", 1000)];
+  const decisions = new Map([["src_1", { type: "extra", hide: true }]]);
+  const { rows, folded } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 0, "hidden means no main row");
+  assert.equal(folded.length, 1, "but still reachable");
+  assert.equal(folded[0].sourceId, "src_1");
+});
+
+check("platform icons exist for the measured platforms plus fallback", () => {
+  assert.match(platformIcon("youtube"), /<svg/);
+  assert.match(platformIcon("facebook"), /<svg/);
+  assert.match(platformIcon("instagram"), /<svg/);
+  assert.match(platformIcon("YOUTUBE"), /#FF0000/);
+  assert.match(platformIcon("myspace"), /<svg/);
+  assert.equal(platformIcon(""), PLATFORM_ICONS.fallback);
+  assert.equal(platformIcon(null), PLATFORM_ICONS.fallback);
 });
 
 check("pending review flag preserved", () => {

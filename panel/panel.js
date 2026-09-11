@@ -6,6 +6,7 @@
  */
 
 import { CONFIG, STORAGE_KEYS } from "../src/config.js";
+import { platformIcon } from "../src/panel-model.js";
 import { MESSAGE_TYPES, PORT_NAME, makeEnvelope } from "../src/protocol.js";
 
 const L = CONFIG.LABELS;
@@ -31,18 +32,30 @@ let windowCount = CONFIG.PANEL.maxMountedRows;
 let lastRowIds = [];
 let enabled = true;
 let lastHealth = { observer: "ok", wsState: "off" };
+let lastHealthAt = Date.now();
+let savedScrollTop = 0;
 const pendingFeature = new Map();
+const WINDOW_CAP = 1200;
 
 app.hidden = false;
 document.getElementById("static-failure").hidden = true;
+document.querySelector(".head__title").textContent = L.panelTitle;
+document.querySelector(".filter__label").textContent = L.filterLabel;
+document.getElementById("reset").textContent = L.resetSession;
+document.getElementById("new-items").textContent = L.panelNewItems;
+document.getElementById("gear").setAttribute("aria-label", L.settingsHeading);
+document.getElementById("list").removeAttribute("aria-live");
+document.getElementById("status").setAttribute("aria-live", "polite");
 
 function wireUi() {
   gear.addEventListener("click", () => {
     // One button, both ways: the gear opens and closes the settings view.
     const opening = settings.hidden;
+    if (opening) savedScrollTop = list.scrollTop;
     settings.hidden = !opening;
     list.hidden = opening || !enabled;
     gear.setAttribute("aria-expanded", String(opening));
+    if (!opening) list.scrollTop = savedScrollTop;
   });
   gear.setAttribute("aria-expanded", "false");
   reset.addEventListener("click", () => {
@@ -72,6 +85,12 @@ async function init() {
     if (info.status === "complete") bindTab();
   });
   chrome.windows?.onFocusChanged?.addListener(() => bindTab());
+  setInterval(() => {
+    if (!port || Date.now() - lastHealthAt < 4000) return;
+    setStatus(L.panelDisconnected);
+    port.postMessage(makeEnvelope(MESSAGE_TYPES.RESYNC, envelopeFields()));
+    lastHealthAt = Date.now();
+  }, CONFIG.PANEL.healthIntervalMs);
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area !== "local") return;
     if (STORAGE_KEYS.enabled in changes) {
@@ -112,7 +131,6 @@ async function bindTab() {
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const tab = tabs[0];
   const isStudio = tab && /^https:\/\/([a-z0-9-]+\.)?streamyard\.com\//i.test(tab.url ?? "");
-  pdbg("active:" + (tab ? tab.id : "none") + ":" + ((tab && tab.url) || "?"));
   if (!isStudio) {
     port?.disconnect();
     port = null;
@@ -140,7 +158,6 @@ async function bindTab() {
     scheduleRebind();
   });
   // Cold handshake: the port connection authorizes identity discovery.
-  pdbg("connect:" + tab.id);
   port.postMessage(makeEnvelope(MESSAGE_TYPES.SUBSCRIBE, { documentToken: null, sessionEpoch: null }));
   setStatus(L.panelLoading);
   rebindAttempts = 0;
@@ -193,6 +210,7 @@ function onPortMessage(message) {
       break;
     }
     case MESSAGE_TYPES.HEALTH:
+      lastHealthAt = Date.now();
       lastHealth = { observer: message.observer ?? "ok", wsState: message.wsState ?? "off" };
       enabled = message.enabled !== false;
       paintStatus();
@@ -256,7 +274,7 @@ function render() {
     older.style.margin = "8px auto";
     older.textContent = `${L.panelFolded} (${rows.length - windowCount}+)`;
     older.addEventListener("click", () => {
-      windowCount += CONFIG.PANEL.maxMountedRows;
+      windowCount = Math.min(WINDOW_CAP, windowCount + CONFIG.PANEL.maxMountedRows);
       render();
     });
     frag.append(older);
@@ -274,8 +292,9 @@ function render() {
     rowEls.set(row.rowId, el);
     frag.append(el);
   }
+  const visibleIds = new Set(visible.map((r) => r.rowId));
   for (const id of [...rowEls.keys()]) {
-    if (!model.has(id)) rowEls.delete(id);
+    if (!model.has(id) || !visibleIds.has(id)) rowEls.delete(id);
   }
 
   if (folded.length > 0) {
@@ -316,7 +335,7 @@ function rowKey(row) {
   return JSON.stringify([row.primary.displayText, row.badges, row.feature, row.shown, row.starred]);
 }
 
-function renderRow(row) {
+export function renderRow(row) {
   const wrap = document.createElement("article");
   wrap.className = "row";
   wrap.dataset.rowId = row.rowId;
@@ -404,6 +423,23 @@ function renderRow(row) {
     actions.append(star);
   }
   wrap.append(actions);
+
+  if (Array.isArray(row.members) && row.members.length > 1) {
+    const details = document.createElement("details");
+    details.className = "folded";
+    details.style.gridColumn = "2";
+    const summary = document.createElement("summary");
+    summary.textContent = `${row.badges?.countLabel ?? ""} — ${L.panelFolded}`;
+    details.append(summary);
+    for (const member of row.members) {
+      const item = document.createElement("div");
+      item.className = "folded__item";
+      item.dir = "auto";
+      item.textContent = `${member.handle} — ${member.displayText}`;
+      details.append(item);
+    }
+    wrap.append(details);
+  }
   return wrap;
 }
 
@@ -442,11 +478,12 @@ function requestFeature(row, button) {
   button.disabled = true;
   pendingFeature.set(requestId, {
     resolve: (result) => {
-      if (result.outcome === "clicked") {
-        button.textContent = L.featureCheckBroadcast;
-      } else {
+      if (result.outcome === "refused") {
         button.disabled = false;
         button.title = L.featureFindNative;
+      } else {
+        // clicked or unknown: stay disabled until validated shown state returns.
+        button.textContent = L.featureCheckBroadcast;
       }
     },
   });
@@ -460,8 +497,12 @@ function requestFeature(row, button) {
   setTimeout(() => {
     const entry = pendingFeature.get(requestId);
     if (entry) {
-      pendingFeature.delete(requestId);
+      // Never re-enable on an unknown outcome: a second click could toggle the
+      // broadcast off. Ask the content session for the recorded outcome.
       entry.resolve({ outcome: "unknown", reasonCode: "featureCheckBroadcast" });
+      port?.postMessage(
+        makeEnvelope(MESSAGE_TYPES.ACTION_STATUS, { ...envelopeFields(), requestId })
+      );
     }
   }, CONFIG.FEATURE_PROXY.ackTimeoutMs);
 }

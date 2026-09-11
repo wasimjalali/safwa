@@ -634,3 +634,23 @@ Append to invariant #2 (selector isolation):
 - Cost asymmetry: inside the window, ambiguity merges, never hides. Do not hide a maybe.
 - All visible strings from `CONFIG.LABELS`, RTL Dari. No remote code; no tokens in the extension; the api-socket hello auth is never logged or persisted.
 - The native panel is inviolable in every mode, including every failure mode.
+
+---
+
+## 18. Amendment record — 2026-09-11 (owner decisions after the live run)
+
+1. **Palette: Useful Design System supersedes the §6.1 brand tokens.** The owner chose the
+   Useful monochrome system (canvas `#f8f8f8`, white surfaces, gray ink scale, hairline
+   borders, ink accent; status hues only on real state). Persian keeps bundled Vazirmatn.
+   The single intentional color exception is the **source-platform logo** on the avatar
+   (YouTube/Facebook/Instagram brand marks, mirroring StreamYard), replacing the platform
+   text chip.
+2. **Second-question semantics.** With the setting on, a confirmed second question is
+   **hidden** from the main list and remains reachable in «نظرهای جمع‌شده»; with it off the
+   row stays visible with the «سوال دوم این شخص» badge. The label now reads
+   «پنهان کردن سوال دوم هر نفر». Duplicates keep folding with the gold count.
+3. **Copy:** the word «پخش» is replaced with «برنامه زنده» throughout the UI.
+4. **Settings affordance:** the gear toggles the settings view open *and* closed; the
+   separate back arrow was removed.
+5. **Test plan additions:** `feature-proxy`, `native-safety`, and `panel-render` harnesses
+   are now part of `npm test`.

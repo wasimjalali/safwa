@@ -15,6 +15,8 @@
  * The native StreamYard panel is never written to in any mode.
  */
 
+import { checkFeatureRequest as checkProxyRequest } from "./proxy-rules.js";
+
 const TAG = "[Ṣafwa]";
 const DEBOUNCE_MS = 80;
 const CONTAINER_POLL_MS = 1000;
@@ -50,6 +52,7 @@ export function startSession(deps) {
   let health = healthMod.createHealth(config);
   let wsState = config.WS_MODE === "off" ? "off" : "starting";
   let bridgeHandshakeSeen = false;
+  let lastQueueDropped = 0;
   let masterEnabled = true;
   let lastHref = location.origin + location.pathname;
 
@@ -61,6 +64,7 @@ export function startSession(deps) {
   const ports = new Set();
   let publishTimer = null;
   let pendingSnapshot = false;
+  let publishedKeys = new Map();
 
   let container = null;
   let observer = null;
@@ -116,7 +120,9 @@ export function startSession(deps) {
           publishHealth();
         }
         if (STORAGE_KEYS.resetAt in changes) {
-          resetSession();
+          // v2 reset is port-scoped to the bound tab; only the legacy build
+          // reacts to the global storage key.
+          if (config.PANEL_MODE === "v1-inline") resetSession();
           return;
         }
         const keys = [
@@ -143,6 +149,12 @@ export function startSession(deps) {
     startWs();
     setInterval(() => {
       health.tick();
+      const snap = health.snapshot();
+      if (snap.bridge?.state === "demoted" || snap.room?.state === "demoted") {
+        wsState = "demoted";
+      } else if (config.WS_MODE !== "off" && wsState === "starting") {
+        wsState = config.WS_MODE;
+      }
       publishHealth();
     }, config.PANEL.healthIntervalMs);
   }
@@ -378,7 +390,42 @@ export function startSession(deps) {
 
   /* ----------------------------------------------------------- LLM review */
 
+  const LLM_MAX_IN_FLIGHT = 2;
+  const LLM_QUEUE_MAX = 20;
+  const LLM_ADMISSION_TTL_MS = 8000;
+  const LLM_FAIL_WINDOW_MS = 60000;
+  const LLM_PAUSE_MS = 60000;
+  const llmQueue = [];
+  let llmInFlight = 0;
+  let llmFailures = [];
+  let llmPausedUntil = 0;
+
   function scheduleLlm(comment, decision, sourceId) {
+    llmQueue.push({
+      comment,
+      decision,
+      sourceId,
+      admittedAt: admission.getRecord(sourceId)?.admittedAt ?? Date.now(),
+    });
+    if (llmQueue.length > LLM_QUEUE_MAX) llmQueue.splice(0, llmQueue.length - LLM_QUEUE_MAX);
+    drainLlm();
+  }
+
+  function drainLlm() {
+    if (Date.now() < llmPausedUntil) return;
+    while (llmInFlight < LLM_MAX_IN_FLIGHT && llmQueue.length > 0) {
+      const job = llmQueue.shift();
+      if (Date.now() - job.admittedAt > LLM_ADMISSION_TTL_MS) continue;
+      llmInFlight += 1;
+      runLlmJob(job).finally(() => {
+        llmInFlight -= 1;
+        drainLlm();
+      });
+    }
+  }
+
+  async function runLlmJob(job) {
+    const { comment, decision, sourceId } = job;
     const guard = {
       documentToken,
       sessionEpoch,
@@ -386,27 +433,37 @@ export function startSession(deps) {
       sourceId,
       contentRevision: admission.getRecord(sourceId)?.admissionSeq ?? 0,
     };
-    llm
-      .classifyComment(comment, decision.recentQuestions, config, llm.llmContextFromDecision(comment, decision))
-      .then((result) => {
-        if (!result) return;
-        if (guard.documentToken !== documentToken) return;
-        if (guard.sessionEpoch !== sessionEpoch) return;
-        if (guard.settingsRevision !== settingsRevision) return;
-        const record = admission.getRecord(sourceId);
-        if (!record || record.admissionSeq !== guard.contentRevision) return;
-        const next = grouping.applyLlmOverride(decision, result, state, config);
-        if (!next || next === decision) return;
-        storeDecision(sourceId, next);
-        for (const extra of next.alsoRender ?? []) {
-          const extraId = sourceOf(extra?.comment);
-          if (extraId && extra?.comment) {
-            decisions.set(extraId, enrichDecision({ ...extra, target: null, block: extra.block }));
-          }
+    try {
+      const result = await llm.classifyComment(
+        comment,
+        decision.recentQuestions,
+        config,
+        llm.llmContextFromDecision(comment, decision)
+      );
+      llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
+      if (!result) return;
+      if (guard.documentToken !== documentToken) return;
+      if (guard.sessionEpoch !== sessionEpoch) return;
+      if (guard.settingsRevision !== settingsRevision) return;
+      const record = admission.getRecord(sourceId);
+      if (!record || record.admissionSeq !== guard.contentRevision) return;
+      const next = grouping.applyLlmOverride(decision, result, state, config);
+      if (!next || next === decision) return;
+      storeDecision(sourceId, next);
+      for (const extra of next.alsoRender ?? []) {
+        const extraId = sourceOf(extra?.comment);
+        if (extraId && extra?.comment) {
+          decisions.set(extraId, enrichDecision({ ...extra, target: null, block: extra.block }));
         }
-        publish(false);
-      })
-      .catch(() => {});
+      }
+      publish(false);
+    } catch {
+      llmFailures.push(Date.now());
+      if (llmFailures.length >= 3) {
+        llmPausedUntil = Date.now() + LLM_PAUSE_MS;
+        llmFailures = [];
+      }
+    }
   }
 
   /* ----------------------------------------------------- settings rebuild */
@@ -436,6 +493,8 @@ export function startSession(deps) {
     anchors.clear();
     occurrenceRegistry.clear();
     receipts.clear();
+    pending.clear();
+    publishedKeys = new Map();
     if (reseed && container?.isConnected) {
       for (const node of dom.collectCommentNodes(container)) pending.add(node);
       schedule();
@@ -478,24 +537,33 @@ export function startSession(deps) {
       pendingSnapshot = false;
       const projection = currentProjection();
       const rows = projection.rows;
+      const nextKeys = new Map();
+      for (const row of rows) nextKeys.set(row.rowId, JSON.stringify(row));
+      const upserts = wantSnapshot
+        ? rows
+        : rows.filter((row) => publishedKeys.get(row.rowId) !== nextKeys.get(row.rowId));
+      const removals = [];
+      for (const id of publishedKeys.keys()) {
+        if (!nextKeys.has(id)) removals.push(id);
+      }
+      publishedKeys = nextKeys;
       revision += 1;
       for (const port of ports) {
         try {
           if (wantSnapshot) {
             sendSnapshot(port, rows, projection.folded);
           } else {
-            const removals = [];
-            port.safwaRowIds = port.safwaRowIds ?? new Set();
-            const nextIds = new Set(rows.map((row) => row.rowId));
-            for (const id of port.safwaRowIds) if (!nextIds.has(id)) removals.push(id);
-            port.safwaRowIds = nextIds;
+            if (upserts.length === 0 && removals.length === 0) {
+              port.safwaRevision = revision;
+              continue;
+            }
             port.postMessage(
               protocol.makeEnvelope(protocol.MESSAGE_TYPES.PATCH, {
                 documentToken,
                 sessionEpoch,
                 baseRevision: port.safwaRevision ?? revision - 1,
                 revision,
-                upserts: rows,
+                upserts,
                 removals,
                 folded: projection.folded,
               })
@@ -640,48 +708,39 @@ export function startSession(deps) {
       const prior = receipts.get(request.requestId);
       return { outcome: prior.outcome, reasonCode: prior.reasonCode };
     }
-    if (!config.FEATURE_PROXY_ENABLED) return refuse("featureFindNative");
-
     const sourceId = request.targetSourceId ?? request.sourceId;
     const record = admission.getRecord(sourceId);
     const anchor = anchors.get(sourceId);
-    if (!record || !anchor || !anchor.el?.isConnected) {
-      return finish(request.requestId, refuse("featureFindNative"));
-    }
-    if (typeof request.sourceRevision === "number" && request.sourceRevision !== record.admissionSeq) {
-      return finish(request.requestId, refuse("featureFindNative"));
-    }
-    if (record.shown === "on") {
-      // Never toggle an already-on-air comment off.
-      return finish(request.requestId, refuse("featureFindNative"));
-    }
-    const live = dom.extractComment(anchor.el);
-    if (
-      !live ||
-      (live.platform ?? "") !== (record.platform ?? "") ||
-      live.handle !== record.handle ||
-      live.displayText !== record.displayText
-    ) {
-      return finish(request.requestId, refuse("featureFindNative"));
-    }
-    // Indistinguishable twins: if any OTHER connected anchor holds the same
-    // platform/handle/text, refuse - never guess which row is the right one.
-    for (const [otherId, other] of anchors) {
-      if (otherId === sourceId || !other?.el?.isConnected) continue;
-      const otherLive = dom.extractComment(other.el);
-      if (
-        otherLive &&
-        (otherLive.platform ?? "") === (live.platform ?? "") &&
-        otherLive.handle === live.handle &&
-        otherLive.displayText === live.displayText
-      ) {
-        return finish(request.requestId, refuse("featureFindNative"));
+    const anchorConnected = !!anchor?.el?.isConnected;
+    const live = anchorConnected ? dom.extractComment(anchor.el) : null;
+    let twinCount = 0;
+    if (live) {
+      for (const [otherId, other] of anchors) {
+        if (otherId === sourceId || !other?.el?.isConnected) continue;
+        const otherLive = dom.extractComment(other.el);
+        if (
+          otherLive &&
+          (otherLive.platform ?? "") === (live.platform ?? "") &&
+          otherLive.handle === live.handle &&
+          otherLive.displayText === live.displayText
+        ) {
+          twinCount += 1;
+        }
       }
     }
-    const button = dom.findShowButton(anchor.el);
-    if (!button || button.disabled) {
-      return finish(request.requestId, refuse("featureFindNative"));
-    }
+    const button = anchorConnected ? dom.findShowButton(anchor.el) : null;
+    const verdict = checkProxyRequest({
+      request,
+      session: { documentToken, sessionEpoch },
+      record: record ?? null,
+      anchorConnected,
+      liveRow: live,
+      twinCount,
+      buttonCount: button && !button.disabled ? 1 : 0,
+      enabled: config.FEATURE_PROXY_ENABLED,
+      now: Date.now(),
+    });
+    if (!verdict.ok) return finish(request.requestId, refuse(verdict.reasonCode ?? "featureFindNative"));
     const clicked = dom.clickShowButton(anchor.el);
     if (!clicked) return finish(request.requestId, refuse("featureFindNative"));
     return finish(request.requestId, FEATURE_OK);
@@ -738,6 +797,16 @@ export function startSession(deps) {
     }
     if (envelope.kind === "health") {
       health.noteBridgeFrame(envelope.endpointKey);
+      try {
+        const stats = JSON.parse(envelope.data || "{}");
+        if (typeof stats.queueDropped === "number" && stats.queueDropped > lastQueueDropped) {
+          lastQueueDropped = stats.queueDropped;
+          // A dropped frame is a loss signal: count it toward demotion (spec §8 row 18).
+          health.noteParse("malformed", envelope.endpointKey);
+        }
+      } catch {
+        // Aggregate-only stats; a broken stats frame is not a comment frame.
+      }
       return;
     }
     if (envelope.kind !== "frame" || envelope.dataType !== "text") return;

@@ -16,7 +16,7 @@
  * Usage:
  *   node tools/build-manifest.js [--variant <v>] [--out <path>] [--dry-run]
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import process from "node:process";
 
@@ -161,6 +161,35 @@ function parseArgs(argv) {
   return args;
 }
 
+const VARIANT_MODES = {
+  legacy: { panel: "v1-inline", ws: null },
+  v2: { panel: "sidebar", ws: "off" },
+  "v2-ws-log": { panel: "sidebar", ws: "log" },
+  "v2-ws-enrich": { panel: "sidebar", ws: "enrich" },
+  "v2-ws-primary": { panel: "sidebar", ws: "primary" },
+};
+
+function checkConfigPairing(variant) {
+  const want = VARIANT_MODES[variant];
+  if (!want) return;
+  const src = readFileSync(new URL("../src/config.js", import.meta.url), "utf8");
+  const panelMatch = src.match(/PANEL_MODE:\s*"([^"]+)"/);
+  const wsMatch = src.match(/WS_MODE:\s*"([^"]+)"/);
+  const panel = panelMatch ? panelMatch[1] : "?";
+  const ws = wsMatch ? wsMatch[1] : "?";
+  const ok =
+    panel === want.panel && (want.ws === null || ws === want.ws);
+  if (!ok) {
+    console.error(
+      `manifest/config mismatch for --variant ${variant}: src/config.js has ` +
+        `PANEL_MODE="${panel}" WS_MODE="${ws}", expected ` +
+        `PANEL_MODE="${want.panel}"${want.ws === null ? "" : ` WS_MODE="${want.ws}"`}. ` +
+        `Edit src/config.js to match before packaging.`
+    );
+    process.exit(2);
+  }
+}
+
 function main() {
   let args;
   try {
@@ -171,6 +200,7 @@ function main() {
     return;
   }
 
+  checkConfigPairing(args.variant);
   const manifest = args.variant === "legacy" ? LEGACY_MANIFEST : buildV2(args.variant);
   const json = `${JSON.stringify(manifest, null, 2)}\n`;
 
