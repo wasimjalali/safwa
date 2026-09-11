@@ -103,6 +103,7 @@ async function init() {
     if (area !== "local") return;
     if (STORAGE_KEYS.enabled in changes) {
       enabled = changes[STORAGE_KEYS.enabled].newValue !== false;
+      masterEl.checked = enabled;
       paintEnabledState();
     }
     for (const row of SETTING_ROWS) {
@@ -269,6 +270,7 @@ function onPortMessage(message) {
       lastHealthAt = Date.now();
       lastHealth = { observer: message.observer ?? "ok", wsState: message.wsState ?? "off" };
       enabled = message.enabled !== false;
+      masterEl.checked = enabled;
       paintStatus();
       paintEnabledState();
       break;

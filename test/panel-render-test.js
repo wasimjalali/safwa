@@ -7,6 +7,14 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const panelSrc = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../panel/panel.js"),
+  "utf8"
+);
 
 let passed = 0;
 let failed = 0;
@@ -197,6 +205,17 @@ check("pending review does not paint a maybe-duplicate badge", () => {
   const text = walk(el).map((n) => n.textContent).join(" | ");
   assert.equal(text.includes("شاید"), false);
   assert.equal(el.classList.contains("row--pending"), false);
+});
+
+check("master toggle follows storage and health, not just the first load", () => {
+  assert.ok(panelSrc.includes("if (STORAGE_KEYS.enabled in changes)"), "storage listener watches the master key");
+  const storageBlock = panelSrc.slice(panelSrc.indexOf("if (STORAGE_KEYS.enabled in changes)"));
+  assert.ok(storageBlock.includes("masterEl.checked = enabled"), "turning the filter on from the toolbar must move the switch");
+  assert.ok(
+    panelSrc.includes("case MESSAGE_TYPES.HEALTH") &&
+      panelSrc.slice(panelSrc.indexOf("case MESSAGE_TYPES.HEALTH")).includes("masterEl.checked = enabled"),
+    "HEALTH must keep the master switch in sync"
+  );
 });
 
 check("continuation keeps both parts readable under one number", () => {
