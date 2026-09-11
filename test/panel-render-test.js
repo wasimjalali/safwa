@@ -177,6 +177,17 @@ check("feature control is an icon button and the number sits in a circle", () =>
   assert.equal(nums[0].textContent, "۱");
 });
 
+check("extra chip uses the ordinal label, not a hardcoded 2nd", () => {
+  const el = renderRow({
+    ...row,
+    members: undefined,
+    badges: { secondQuestion: true, nthQuestion: 3, nthQuestionLabel: "سوال سوم این شخص" },
+  });
+  const text = walk(el).map((n) => n.textContent).join(" | ");
+  assert.ok(text.includes("سوال سوم این شخص"));
+  assert.equal(text.includes("سوال دوم این شخص"), false);
+});
+
 check("pending review does not paint a maybe-duplicate badge", () => {
   const el = renderRow({
     ...row,

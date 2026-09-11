@@ -455,7 +455,9 @@ export function renderRow(row, options = {}) {
   handle.textContent = row.primary.handle;
   meta.append(handle);
   if (row.badges?.joined) meta.append(chipOf("chip--part", L.joinedParts ?? L.joined));
-  if (row.badges?.secondQuestion) meta.append(chipOf("chip--second", L.secondQuestion));
+  if (row.badges?.nthQuestionLabel || row.badges?.secondQuestion) {
+    meta.append(chipOf("chip--second", row.badges.nthQuestionLabel || L.secondQuestion));
+  }
   if (row.starred === "on") meta.append(chipOf("chip--star", L.featureStarred));
   body.append(meta);
 

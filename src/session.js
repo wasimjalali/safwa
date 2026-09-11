@@ -63,6 +63,7 @@ export function startSession(deps) {
   let lastHref = location.origin + location.pathname;
 
   const decisions = new Map();
+  const llmOutcomes = new Map();
   const objectSource = new WeakMap();
   const anchors = new Map();
   const occurrenceRegistry = new Map(); // fingerprint -> { sourceId, ref: WeakRef<node> }
@@ -483,11 +484,15 @@ export function startSession(deps) {
       }
       if (guard.documentToken !== documentToken) return;
       if (guard.sessionEpoch !== sessionEpoch) return;
-      if (guard.settingsRevision !== settingsRevision) return;
-      if (guard.rebuildEpoch !== rebuildEpoch) return;
       const record = admission.getRecord(sourceId);
       if (!record || record.admissionSeq !== guard.contentRevision) return;
       if (record.displayText !== guard.contentText) return;
+      llmOutcomes.set(sourceId, result);
+      if (guard.settingsRevision !== settingsRevision || guard.rebuildEpoch !== rebuildEpoch) {
+        rebuildFromRecords();
+        publish(true);
+        return;
+      }
       const next = grouping.applyLlmOverride(decision, result, state, config);
       if (!next || next === decision) return;
       storeDecision(sourceId, next);
@@ -523,9 +528,22 @@ export function startSession(deps) {
         timestamp: record.admittedAt,
       };
       objectSource.set(copy, record.sourceId);
-      const decision = grouping.processComment(copy, state, config);
+      let decision = grouping.processComment(copy, state, config);
+      const prior = config.LLM_ENABLED ? llmOutcomes.get(record.sourceId) : null;
+      if (prior) {
+        const next = grouping.applyLlmOverride(decision, prior, state, config);
+        if (next) {
+          decision = next;
+          for (const extra of next.alsoRender ?? []) {
+            const extraId = sourceOf(extra?.comment);
+            if (extraId && extra?.comment) {
+              decisions.set(extraId, enrichDecision({ ...extra, target: null, block: extra.block }));
+            }
+          }
+        }
+      }
       storeDecision(record.sourceId, decision);
-      if (decision.needsLlmReview && config.LLM_ENABLED) {
+      if (decision.needsLlmReview && config.LLM_ENABLED && !prior) {
         scheduleLlm(copy, decision, record.sourceId);
       }
     }
@@ -536,6 +554,7 @@ export function startSession(deps) {
     admission.reset();
     state = stateMod.createState();
     decisions.clear();
+    llmOutcomes.clear();
     anchors.clear();
     occurrenceRegistry.clear();
     receipts.clear();
