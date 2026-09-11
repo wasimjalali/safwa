@@ -1,6 +1,6 @@
 {
   "name": "safwa",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "private": true,
   "description": "\u1e62afwa (\u0635\u0641\u0648\u0629) - Chrome MV3 live Q&A filter for Dari/Persian StreamYard comments. Regex plus Gemma 4: collapse duplicates, join split questions, one question per person.",
   "type": "module",
