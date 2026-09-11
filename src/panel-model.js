@@ -152,6 +152,18 @@ export function buildViewRows(records, decisions, config) {
     row.joinedFragments = decision.joinedFragments.map(fragmentShape);
     const headId = headIdOf(decision);
     const headRecord = (headId && bySource.get(headId)) || null;
+    const first = decision.joinedFragments[0];
+    // Teacher reads aloud: part one must stay first even if this card was
+    // built from a later fragment.
+    if (first?.sourceId && first.sourceId !== row.primary.sourceId) {
+      row.primary = {
+        ...row.primary,
+        sourceId: first.sourceId,
+        handle: first.handle ?? row.primary.handle,
+        displayText: first.displayText ?? row.primary.displayText,
+        admittedAt: first.admittedAt ?? row.primary.admittedAt,
+      };
+    }
     // Always feature the first fragment. If the head is missing, refuse —
     // never click the tail's native row under a "show first part" label.
     if (headRecord) {

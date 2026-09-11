@@ -139,6 +139,8 @@ check("joined shown state follows the first fragment, not the tail", () => {
   ]);
   const { rows } = buildViewRows(records, decisions, config);
   assert.equal(rows.length, 1);
+  assert.equal(rows[0].primary.sourceId, "src_1");
+  assert.equal(rows[0].primary.displayText, "نصف اول");
   assert.equal(rows[0].feature.targetSourceId, "src_1");
   assert.equal(rows[0].shown, "on", "icon matches the native row we would click");
 });
@@ -153,6 +155,7 @@ check("joined fallback never features the tail when the head row is missing", ()
   ]);
   const { rows } = buildViewRows(records, decisions, config);
   assert.equal(rows.length, 1);
+  assert.equal(rows[0].primary.displayText, "نصف اول");
   assert.equal(rows[0].feature.available, false);
   assert.equal(rows[0].feature.targetSourceId, "src_1");
   assert.equal(rows[0].feature.labelKey, "featureShowFirst");
