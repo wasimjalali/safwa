@@ -524,7 +524,14 @@ export function createAdmission(config, { now = () => Date.now() } = {}) {
             }
             let next;
             if (shown.has(record.commentId)) {
-              next = "on";
+              if (typeof record.shownOffUntil === "number" && now() < record.shownOffUntil) {
+                // Teacher just took it off air; a lagging snapshot that still
+                // lists the id must not flip the icon back on (and invert the
+                // next click).
+                next = record.shown === "pending" ? "pending" : "unknown";
+              } else {
+                next = "on";
+              }
             } else if (record.shown === "pending") {
               // Sticky latch: a snapshot generated before our validated click
               // must not re-arm the button (measured snapshot lag ~10s).

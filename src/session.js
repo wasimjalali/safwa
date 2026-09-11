@@ -542,8 +542,6 @@ export function startSession(deps) {
         sidebar: config.PANEL_MODE === "sidebar",
         anchorOk: !!anchor?.el?.isConnected,
         shown: record?.shown,
-        coolingUntil: record?.featureCoolingUntil ?? 0,
-        now: Date.now(),
       });
       row.feature = {
         available: avail.available,
@@ -781,14 +779,21 @@ export function startSession(deps) {
     if (record) {
       const wasOn = record.shown === "on";
       const wsReflectsShown = config.WS_MODE === "enrich" || config.WS_MODE === "primary";
+      const coolMs = config.FEATURE_PROXY?.ackTimeoutMs ?? 1000;
+      const offLatchMs = config.WS_LIMITS?.featureStateMs ?? 15000;
       if (wasOn) {
         record.shown = "unknown";
+        record.shownOffUntil = Date.now() + offLatchMs;
       } else if (wsReflectsShown) {
         record.shown = "pending";
+        record.shownOffUntil = 0;
       } else {
         record.shown = "on";
+        record.shownOffUntil = 0;
       }
-      record.featureCoolingUntil = Date.now() + (config.FEATURE_PROXY?.ackTimeoutMs ?? 1000);
+      // Request-time only: do not bake cooling into the published row or the
+      // icon stays disabled until some later comment republishes.
+      record.featureCoolingUntil = Date.now() + coolMs;
     }
     publish(false);
     return finish(request.requestId, FEATURE_OK);

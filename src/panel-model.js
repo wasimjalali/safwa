@@ -150,8 +150,20 @@ export function buildViewRows(records, decisions, config) {
     if (!Array.isArray(decision?.joinedFragments) || decision.joinedFragments.length === 0) return;
     row.badges.joined = true;
     row.joinedFragments = decision.joinedFragments.map(fragmentShape);
-    const headRecord = bySource.get(row.primary.sourceId);
-    if (headRecord) row.feature = featureFor(headRecord, true);
+    const headId = headIdOf(decision);
+    const headRecord = (headId && bySource.get(headId)) || null;
+    // Always feature the first fragment. If the head is missing, refuse —
+    // never click the tail's native row under a "show first part" label.
+    if (headRecord) {
+      row.feature = { ...featureFor(headRecord, true), targetSourceId: headId };
+    } else {
+      row.feature = {
+        available: false,
+        reasonCode: "featureFindNative",
+        labelKey: "featureShowFirst",
+        targetSourceId: headId,
+      };
+    }
   };
 
   // Pass 1: rows for non-duplicate, non-hidden, non-continuation-tail records.
