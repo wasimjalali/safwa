@@ -118,6 +118,13 @@ export const CONFIG = {
   // Must stay false: ambiguous cases are marked, never hidden until confirmed.
   AUTO_HIDE_ANYTHING_AMBIGUOUS: false,
 
+  // How confirmed folds (duplicates, greetings, confirmed extras) are shown.
+  // "fade": keep the row in the layout, faded to a ghost. The comments list is
+  // a virtual scroller: display:none removes the row but NOT its slot, so the
+  // panel shows large blank gaps. Fading keeps StreamYard's geometry intact.
+  // "hide": the older display:none behavior (cleaner feed, blank gaps remain).
+  COLLAPSE_MODE: "fade",
+
   // Teacher settings (popup). Defaults are the live-show recommendations.
   JOIN_CONTINUATIONS: true,
   HIDE_CONFIRMED_EXTRAS: true,
@@ -141,6 +148,56 @@ export const CONFIG = {
   // if you prefer Persian digits.
   UI_DIRECTION: "rtl",
   USE_PERSIAN_DIGITS_IN_UI: false,
+
+  // --- v2 panel + transport (spec specs/safwa-v2-architecture.md Section 9) ---
+
+  // The clean view is a browser sidebar; in-page annotation is the frozen
+  // legacy path used only by the legacy regression/configuration builds.
+  PANEL_MODE: "sidebar", // "sidebar" | "v1-inline" (legacy builds only)
+
+  // Packaging/release configuration, never a teacher setting. "off" builds
+  // contain no ws-main.js / ws-bridge.js at all. COMMENT_SOURCE is DERIVED:
+  // "websocket" iff WS_MODE === "primary", else "dom". Runtime health can only
+  // lower the effective source to "dom".
+  WS_MODE: "off", // "off" | "log" | "enrich" | "primary"
+  FEATURE_PROXY_ENABLED: true, // subject to the live .click() gate
+
+  // Structural endpoint allowlist. Parsed with new URL(); exact match only,
+  // never substring matching.
+  WS_ENDPOINTS: {
+    room: { scheme: "wss:", host: "videows.streamyard.com" },
+    api: { scheme: "wss:", host: "streamyard.com", path: "/api" },
+  },
+
+  WS_LIMITS: {
+    frameBytes: 65536,
+    envelopesPerSec: 200,
+    bytesPerSec: 1048576,
+    queueEnvelopes: 200,
+    queueBytes: 1048576,
+    handshakeMs: 2000,
+    bridgeHealthMs: 4000,
+    roomSilenceMs: 6000,
+    apiSilenceMs: 75000,
+    correlateMs: 1500,
+    unknownSchemaConsecutive: 3,
+    unknownSchemaPer30s: 5,
+    pendingCandidates: 200,
+    pendingBytes: 1048576,
+    featureStateMs: 15000,
+  },
+
+  FEATURE_PROXY: { requestExpiryMs: 2000, ackTimeoutMs: 1000 },
+
+  PANEL: {
+    snapshotChunkRows: 128,
+    snapshotChunkBytes: 262144,
+    patchBatchesPerSec: 20,
+    maxMountedRows: 150,
+    autoFollowPx: 48,
+    healthIntervalMs: 2000,
+    reopenRecoveryMs: 2000,
+  },
 
   // --- LLM semantic classifier (combo architecture) ---
   //
@@ -172,8 +229,12 @@ export const CONFIG = {
     popupTagline: "فلتر سوالات پخش زنده",          // "live stream question filter"
     popupStatusOn: "فعال",                          // "on"
     popupStatusOff: "غیرفعال",                      // "off"
-    popupHintOn: "سوال‌های تکراری جمع می‌شوند و سوال دوم پنهان می‌شود",
+    popupHintOn: "سوال‌های تکراری کم‌رنگ جمع می‌شوند و سوال دوم هر نفر مشخص می‌شود",
     popupHintOff: "ستون نظرات بدون هیچ تغییری نمایش داده می‌شود",
+    popupNeedAccess: "دسترسی به StreamYard خاموش است. یک‌بار اجازه بدهید، بعد صفحه را رفرش کنید.",
+    popupNeedRefresh: "صفوة روی این صفحه ننشسته. استودیو StreamYard را رفرش کنید.",
+    popupAllowAccess: "اجازه دادن به StreamYard",
+    popupReloadStudio: "رفرش همین صفحه",
     popupFooter: "روی StreamYard کار می‌کند",       // "works on StreamYard"
     popupLiveTab: "فلتر",
 
@@ -194,9 +255,9 @@ export const CONFIG = {
       "هیچ ردیفی به‌خاطر تکرار پنهان نمی‌شود.",
     ],
 
-    settingHideExtra: "پنهان کردن سوال دوم هر نفر",
+    settingHideExtra: "کم‌رنگ کردن سوال دوم هر نفر",
     settingHideExtraOn: [
-      "اگر یک نفر سوال جداگانهٔ دیگری بفرستد، بعد از تأیید از ستون برداشته می‌شود.",
+      "اگر یک نفر سوال جداگانهٔ دیگری بفرستد، بعد از تأیید کم‌رنگ می‌شود.",
     ],
     settingHideExtraOff: [
       "سوال دوم همان‌جا می‌ماند.",
@@ -207,9 +268,9 @@ export const CONFIG = {
     settingJoinOn: "اگر یک سوال در دو پیام پشت‌سرهم بیاید، به هم وصل می‌شوند و هر دو دیده می‌شوند.",
     settingJoinOff: "هر پیام جدا می‌ماند، حتی اگر ادامهٔ همان حرف باشد.",
 
-    settingHideGreetings: "پنهان کردن سلام و دعا",
+    settingHideGreetings: "کم‌رنگ کردن سلام و دعا",
     settingHideGreetingsOn: [
-      "سلام، تشکر و دعا که سوال نیستند از ستون برداشته می‌شوند.",
+      "سلام، تشکر و دعا که سوال نیستند کم‌رنگ می‌شوند.",
       "اگر همان پیام سوال هم داشته باشد، سوال می‌ماند.",
     ],
     settingHideGreetingsOff: [
@@ -236,6 +297,27 @@ export const CONFIG = {
       "پیام‌های استریم‌یارد پاک نمی‌شوند.",
       "فقط حافظهٔ صفوة صفر می‌شود.",
     ],
+
+    // --- v2 sidebar chrome (spec Section 9.2) ---
+    panelTitle: "صفوة — سوال‌های پخش",
+    panelLoading: "در حال آماده شدن…",
+    panelWaiting: "در انتظار سوال‌ها",
+    panelOpenStudio: "استودیوی StreamYard را باز کنید",
+    panelDisconnected: "اتصال قطع است؛ ستون اصلی را ببینید",
+    panelKeepCommentsOpen: "ستون نظرات StreamYard را باز نگه دارید",
+    panelSimpleMode: "حالت ساده",
+    panelNewItems: "سوال‌های تازه",
+    panelFolded: "نظرهای جمع‌شده",
+    panelSettingsBack: "بازگشت",
+    platformUnknown: "نامشخص",
+
+    // --- v2 feature proxy ---
+    featureShow: "نمایش در پخش",
+    featureShowFirst: "نمایش بخش اول",
+    featureFindNative: "برای نمایش، نظر را در ستون اصلی پیدا کنید",
+    featureCheckBroadcast: "نمایش را در پخش بررسی کنید",
+    featureOnAir: "روی پخش",
+    featureStarred: "ستاره‌دار",
   },
 };
 
@@ -292,4 +374,8 @@ export const SELECTORS = {
   authorHandle: '[class*="PlatformCommentShell__NameText"]',
   text: '[class*="PlatformCommentShell__ContentSpan"]',
   platformIndicator: 'img[class*="DestinationAvatar__StyledPlatformIcon"]',
+  // v2 additions (spec Section 9.1). The viewer profile image, distinct from
+  // the platform indicator icon; and the native feature control for the proxy.
+  profileAvatar: 'img[class*="Avatar__Image"]',
+  showCommentButton: 'button[data-testid="show-comment-button"]',
 };

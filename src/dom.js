@@ -114,6 +114,70 @@ function extractPlatform(commentNode) {
  * `timestamp` is arrival time (Date.now) because StreamYard exposes no reliable
  * per-comment time; the core only ever compares timestamps, never parses them.
  */
+/**
+ * The row (li.VirtualScroller__ScrollItemWrapper) is the virtual scroller's
+ * slot, not the visible comment card inside it. Absolute-positioned badges must
+ * anchor to the card: against the slot they float under the card or get covered
+ * by the next row. Walk from the text element up to the row's top-level child
+ * that contains it - no extra selectors, no assumptions about card classes.
+ */
+function topChildContaining(commentNode, el) {
+  let cur = el;
+  while (cur?.parentElement && cur.parentElement !== commentNode) cur = cur.parentElement;
+  return cur?.parentElement === commentNode ? cur : null;
+}
+
+/** The inner card element badges anchor to (fallback: the row itself). */
+export function cardAnchor(commentNode) {
+  if (!commentNode) return null;
+  const textEl = commentNode.querySelector?.(SELECTORS.text) ?? null;
+  return topChildContaining(commentNode, textEl) ?? commentNode;
+}
+
+/**
+ * The viewer avatar image (distinct from the platform indicator icon). Returns
+ * an https URL or "" — a missing avatar must never invalidate the comment.
+ */
+export function extractAvatar(commentNode) {
+  try {
+    const img = commentNode?.querySelector?.(SELECTORS.profileAvatar);
+    const src = img?.getAttribute?.("src") ?? img?.src ?? "";
+    const parsed = new URL(src);
+    if (parsed.protocol !== "https:") return "";
+    if (parsed.username || parsed.password) return "";
+    return src;
+  } catch {
+    return "";
+  }
+}
+
+/** The native "show on broadcast" control inside a validated row, or null. */
+export function findShowButton(commentNode) {
+  try {
+    const buttons = commentNode?.querySelectorAll?.(SELECTORS.showCommentButton);
+    if (!buttons || buttons.length !== 1) return null; // exactly one, or refuse
+    return buttons[0];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Click the native feature control. Returns true only when a single enabled
+ * button belonging to this row was clicked. Callers MUST have re-validated the
+ * row immediately before calling; nothing here guesses.
+ */
+export function clickShowButton(commentNode) {
+  const button = findShowButton(commentNode);
+  if (!button || button.disabled) return false;
+  try {
+    button.click();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function extractComment(commentNode) {
   if (!commentNode) return null;
 
@@ -124,11 +188,17 @@ export function extractComment(commentNode) {
   const displayText = readText(textEl);
 
   if (!handle || !displayText) {
-    warnOnce(
-      "fields",
-      `found comment node(s) but could not read handle or text. Author/text ` +
-        `selectors are likely stale. Update SELECTORS in config.js.`
-    );
+    // Blank virtual-scroller placeholders have no author/text nodes. Only warn
+    // when the row already shows comment text we cannot parse — that is the
+    // stale-selector case, not an incoming empty row.
+    const raw = readText(commentNode);
+    if (raw.length > 20) {
+      warnOnce(
+        "fields",
+        `found comment node(s) but could not read handle or text. Author/text ` +
+          `selectors are likely stale. Update SELECTORS in config.js.`
+      );
+    }
     return null;
   }
 
@@ -136,7 +206,9 @@ export function extractComment(commentNode) {
     handle,
     platform: extractPlatform(commentNode),
     displayText,
+    avatar: extractAvatar(commentNode),
     timestamp: Date.now(),
     el: commentNode,
+    cardEl: topChildContaining(commentNode, textEl) ?? commentNode,
   };
 }

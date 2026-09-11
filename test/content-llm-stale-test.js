@@ -136,7 +136,7 @@ globalThis.fetch = () =>
     fetchResolvers.push(resolve);
   });
 
-await import(`../src/content.js?llm-stale-test=${Date.now()}`);
+await import(`../src/content-legacy.js?llm-stale-test=${Date.now()}`);
 
 for (let turn = 0; turn < 20 && fetchResolvers.length < 1; turn++) {
   await new Promise((resolve) => setImmediate(resolve));

@@ -8,9 +8,13 @@ import { CONFIG, STORAGE_KEYS, readStoredSettings } from "../src/config.js";
 const L = CONFIG.LABELS;
 const HELP_ICON = `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.6c0-1.15.95-2.05 2.1-2.05S12.2 6.45 12.2 7.6c0 .85-.5 1.4-1.25 1.8-.7.35-1.05.7-1.05 1.45" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="14.15" r="0.85" fill="currentColor"/></svg>`;
 
+const STREAMYARD_ORIGINS = ["https://streamyard.com/*", "https://*.streamyard.com/*"];
+
 const toggle = document.getElementById("toggle");
 const masterWord = document.getElementById("master-word");
 const hint = document.getElementById("hint");
+const linkStatus = document.getElementById("link-status");
+const fixLink = document.getElementById("fix-link");
 const list = document.getElementById("settings-list");
 const resetBtn = document.getElementById("reset");
 const resetHelp = document.querySelector('[data-help="reset"]');
@@ -227,12 +231,106 @@ if (hasStorage) {
   paintMaster(enabled);
 }
 
-toggle.addEventListener("click", () => {
+toggle.addEventListener("click", async () => {
   userToggled = true;
   enabled = !enabled;
   paintMaster(enabled);
   if (hasStorage) chrome.storage.local.set({ [STORAGE_KEYS.enabled]: enabled });
+  if (enabled) await ensureSiteAccess();
+  await checkLiveLink();
 });
+
+const STUDIO_HOST = /(^|\.)streamyard\.com$/;
+
+async function ensureSiteAccess() {
+  if (!chrome.permissions?.contains) return true;
+  try {
+    const have = await chrome.permissions.contains({ origins: STREAMYARD_ORIGINS });
+    if (have) return true;
+    return await chrome.permissions.request({ origins: STREAMYARD_ORIGINS });
+  } catch {
+    return false;
+  }
+}
+
+function showLinkFix(message, actionLabel, onClick) {
+  if (!linkStatus || !fixLink) return;
+  linkStatus.hidden = false;
+  linkStatus.textContent = message;
+  if (!actionLabel || !onClick) {
+    fixLink.hidden = true;
+    return;
+  }
+  fixLink.hidden = false;
+  fixLink.textContent = actionLabel;
+  fixLink.onclick = onClick;
+}
+
+function hideLinkFix() {
+  if (linkStatus) linkStatus.hidden = true;
+  if (fixLink) {
+    fixLink.hidden = true;
+    fixLink.onclick = null;
+  }
+}
+
+async function checkLiveLink() {
+  if (!chrome.tabs?.query) {
+    hideLinkFix();
+    return;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    hideLinkFix();
+    return;
+  }
+  let host = "";
+  try {
+    host = tab.url ? new URL(tab.url).hostname : "";
+  } catch {
+    host = "";
+  }
+  const onStudio = STUDIO_HOST.test(host);
+  if (host && !onStudio) {
+    hideLinkFix();
+    return;
+  }
+
+  let granted = true;
+  if (chrome.permissions?.contains) {
+    try {
+      granted = await chrome.permissions.contains({ origins: STREAMYARD_ORIGINS });
+    } catch {
+      granted = true;
+    }
+  }
+  if (!granted && (onStudio || !host)) {
+    showLinkFix(L.popupNeedAccess, L.popupAllowAccess, async () => {
+      const ok = await ensureSiteAccess();
+      if (ok) await checkLiveLink();
+    });
+    return;
+  }
+  if (!onStudio) {
+    hideLinkFix();
+    return;
+  }
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "safwa-ping" });
+    hideLinkFix();
+  } catch {
+    showLinkFix(L.popupNeedRefresh, L.popupReloadStudio, async () => {
+      try {
+        await chrome.tabs.reload(tab.id);
+      } catch {
+        // The teacher can still refresh the tab by hand.
+      }
+      window.close();
+    });
+  }
+}
+
+if (hasStorage) checkLiveLink();
 
 resetBtn.addEventListener("click", () => {
   if (hasStorage) chrome.storage.local.set({ [STORAGE_KEYS.resetAt]: Date.now() });
