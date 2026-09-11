@@ -20,6 +20,7 @@ import {
   pickFeatureCandidate,
   pickLiveMatch,
   ownerIdForElement,
+  offClickAllowed,
   groupShownState,
   sameFeatureGroup,
 } from "./proxy-rules.js";
@@ -898,7 +899,11 @@ export function startSession(deps) {
     const liveEl = liveElementFor(record);
     if (liveEl) restoreRow(liveEl);
     bindOwnAnchor(sourceId, liveEl);
-    const clickedRec = admission.getRecord(sourceIdOwning(liveEl, sourceId)) ?? record;
+    const ownerId = sourceIdOwning(liveEl, sourceId);
+    const clickedRec = admission.getRecord(ownerId) ?? record;
+    if (!offClickAllowed(groupShown, clickedRec?.shown)) {
+      return finish(request.requestId, refuse("featureFindNative"));
+    }
     const anchorConnected = !!liveEl?.isConnected;
     const live = anchorConnected ? dom.extractComment(liveEl) : null;
     let twinCount = 0;
@@ -933,7 +938,10 @@ export function startSession(deps) {
       enabled: config.FEATURE_PROXY_ENABLED,
       now: Date.now(),
     });
-    if (record && Date.now() < (record.featureCoolingUntil ?? 0)) {
+    if (
+      (record && Date.now() < (record.featureCoolingUntil ?? 0)) ||
+      (clickedRec && clickedRec !== record && Date.now() < (clickedRec.featureCoolingUntil ?? 0))
+    ) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
     if (!verdict.ok) return finish(request.requestId, refuse(verdict.reasonCode ?? "featureFindNative"));

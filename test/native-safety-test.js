@@ -46,6 +46,7 @@ check("a click does not steal another copy's native node", () => {
   assert.ok(sessionSrc.includes("pickLiveMatch"), "own connected anchor wins over last text match");
   assert.ok(sessionSrc.includes("bindOwnAnchor"), "one occurrence must not adopt another copy's node");
   assert.ok(sessionSrc.includes("sourceIdOwning"), "shown is written on the row that was clicked");
+  assert.ok(sessionSrc.includes("offClickAllowed"), "off-air must refuse a node another copy owns");
 });
 
 check("feature availability follows the live native row, not a stale cache", () => {

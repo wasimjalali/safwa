@@ -29,8 +29,13 @@ export function pickLiveMatch({ ownEl, ownMatches, matches, claimed } = {}) {
   const list = Array.isArray(matches) ? matches : [];
   const taken = claimed instanceof Set ? claimed : new Set(claimed ?? []);
   const unclaimed = list.filter((el) => !taken.has(el));
-  const pool = unclaimed.length ? unclaimed : list;
-  return pool.length ? pool[pool.length - 1] : null;
+  return unclaimed.length ? unclaimed[unclaimed.length - 1] : null;
+}
+
+/** Turning off must hit a node the on-air occurrence owns. Any doubt refuses. */
+export function offClickAllowed(groupShown, ownerShown) {
+  if (groupShown !== "on" && groupShown !== "pending") return true;
+  return ownerShown === "on" || ownerShown === "pending";
 }
 
 /** The occurrence that already owns this node; otherwise the fallback id. */

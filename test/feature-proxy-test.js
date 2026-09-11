@@ -11,6 +11,7 @@ import {
   pickFeatureCandidate,
   pickLiveMatch,
   ownerIdForElement,
+  offClickAllowed,
   groupShownState,
   sameFeatureGroup,
 } from "../src/proxy-rules.js";
@@ -155,6 +156,23 @@ check("pickLiveMatch prefers the occurrence's own node over a later copy", () =>
     pickLiveMatch({ ownEl: own, ownMatches: true, matches: [own, newer], claimed: new Set() }),
     own
   );
+});
+
+check("pickLiveMatch refuses when every match already belongs to another copy", () => {
+  const older = { id: "older" };
+  const newer = { id: "newer" };
+  assert.equal(
+    pickLiveMatch({
+      ownEl: null,
+      ownMatches: false,
+      matches: [older, newer],
+      claimed: new Set([older, newer]),
+    }),
+    null
+  );
+  assert.equal(offClickAllowed("on", "unknown"), false);
+  assert.equal(offClickAllowed("on", "on"), true);
+  assert.equal(offClickAllowed("unknown", "unknown"), true);
 });
 
 check("pickLiveMatch falls back to the last unclaimed match", () => {
