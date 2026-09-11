@@ -20,6 +20,14 @@ export function sameFeatureGroup(sourceId, otherId, sourceDecision, otherDecisio
   return featureGroupId(sourceId, sourceDecision) === featureGroupId(otherId, otherDecision);
 }
 
+/** Collapsed copies share one on-air lamp; a later repeat must not clear it. */
+export function groupShownState(states) {
+  const list = Array.isArray(states) ? states : [];
+  if (list.some((s) => s === "on")) return "on";
+  if (list.some((s) => s === "pending")) return "pending";
+  return "unknown";
+}
+
 /**
  * Which same-group occurrence to click. A lone row stays that row. Several
  * live copies of one question: put the newest on air — StreamYard often

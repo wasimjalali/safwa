@@ -38,6 +38,10 @@ check("the StreamYard example card is rejected before admission", () => {
   );
 });
 
+check("on-air state is shared across collapsed copies", () => {
+  assert.ok(sessionSrc.includes("groupShownState"), "repeats of one card share one on-air lamp");
+});
+
 check("feature availability follows the live native row, not a stale cache", () => {
   assert.ok(sessionSrc.includes("liveElementFor(record)"), "projection must use the live match");
   const availBlock = sessionSrc.slice(sessionSrc.indexOf("function currentProjection"));

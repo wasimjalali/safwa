@@ -18,6 +18,7 @@
 import {
   checkFeatureRequest as checkProxyRequest,
   pickFeatureCandidate,
+  groupShownState,
   sameFeatureGroup,
 } from "./proxy-rules.js";
 import { hasLegacyMarks, restoreFeed, restoreRow } from "./native-restore.js";
@@ -583,7 +584,7 @@ export function startSession(deps) {
     return dom.commentMatches(dom.extractComment(anchor.el), record) ? anchor.el : null;
   }
 
-  function featureCandidateFrom(preferredId, extraIds = []) {
+  function featureCandidateFrom(preferredId, extraIds = [], wantOn) {
     const prefRec = admission.getRecord(preferredId);
     const ids = [preferredId];
     for (const id of extraIds) {
@@ -608,20 +609,34 @@ export function startSession(deps) {
     });
     return pickFeatureCandidate(candidates, {
       requestedId: preferredId,
-      wantOn: prefRec?.shown !== "on",
+      wantOn: wantOn ?? prefRec?.shown !== "on",
     });
   }
 
-  function pickConnectedFeatureId(preferredId, row) {
-    const extraIds = (row.members ?? []).map((m) => m?.sourceId);
-    return featureCandidateFrom(preferredId, extraIds) ?? preferredId;
+  function featureIdsForRow(row) {
+    const designated = row.feature?.targetSourceId ?? row.primary.sourceId;
+    const ids = [designated];
+    for (const member of row.members ?? []) {
+      if (member?.sourceId && !ids.includes(member.sourceId)) ids.push(member.sourceId);
+    }
+    return ids;
+  }
+
+  function onAirId(ids) {
+    return ids.find((id) => {
+      const shown = admission.getRecord(id)?.shown;
+      return shown === "on" || shown === "pending";
+    });
   }
 
   function currentProjection() {
     const projection = panelModel.buildViewRows(admission.records(), decisions, config);
     for (const row of projection.rows) {
-      const designated = row.feature?.targetSourceId ?? row.primary.sourceId;
-      const sourceId = pickConnectedFeatureId(designated, row);
+      const groupIds = featureIdsForRow(row);
+      const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
+      const sourceId =
+        featureCandidateFrom(onAirId(groupIds) ?? groupIds[0], groupIds, groupShown === "unknown") ??
+        groupIds[0];
       const record = admission.getRecord(sourceId);
       const liveEl = liveElementFor(record);
       if (liveEl) {
@@ -632,7 +647,7 @@ export function startSession(deps) {
         enabled: config.FEATURE_PROXY_ENABLED === true,
         sidebar: config.PANEL_MODE === "sidebar",
         anchorOk: !!liveEl?.isConnected,
-        shown: record?.shown,
+        shown: groupShown,
       });
       row.feature = {
         available: avail.available,
@@ -642,7 +657,7 @@ export function startSession(deps) {
         contentRevision: record?.admissionSeq ?? null,
       };
       if (record) {
-        row.shown = record.shown === "on" ? "on" : record.shown === "pending" ? "pending" : "unknown";
+        row.shown = groupShown === "on" ? "on" : groupShown === "pending" ? "pending" : "unknown";
         row.starred = record.starred === "on" ? "on" : "unknown";
       }
     }
@@ -847,7 +862,10 @@ export function startSession(deps) {
         groupIds.push(otherId);
       }
     }
-    sourceId = featureCandidateFrom(sourceId, groupIds) ?? sourceId;
+    const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
+    sourceId =
+      featureCandidateFrom(onAirId(groupIds) ?? sourceId, groupIds, groupShown === "unknown") ??
+      sourceId;
     const record = admission.getRecord(sourceId);
     const liveEl = liveElementFor(record);
     if (liveEl) {

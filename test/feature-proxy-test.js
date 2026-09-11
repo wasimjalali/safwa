@@ -9,6 +9,7 @@ import {
   checkFeatureRequest,
   featureGroupId,
   pickFeatureCandidate,
+  groupShownState,
   sameFeatureGroup,
 } from "../src/proxy-rules.js";
 
@@ -156,6 +157,20 @@ check("duplicate group features the newest live copy, not the first", () => {
       { requestedId: "src_1", wantOn: true }
     ),
     "src_6"
+  );
+});
+
+check("group on-air stays on when a later copy is still unknown", () => {
+  assert.equal(groupShownState(["unknown", "on", "unknown"]), "on");
+  assert.equal(groupShownState(["pending", "unknown"]), "pending");
+  assert.equal(groupShownState(["unknown", "unknown"]), "unknown");
+  assert.equal(
+    pickFeatureCandidate(
+      [cand("src_1", { admissionSeq: 1 }), cand("src_6", { admissionSeq: 6 }), cand("src_9", { admissionSeq: 9 })],
+      { requestedId: "src_6", wantOn: false }
+    ),
+    "src_6",
+    "a new repeat must not retarget an already-on card"
   );
 });
 
