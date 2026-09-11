@@ -38,6 +38,15 @@ check("the StreamYard example card is rejected before admission", () => {
   );
 });
 
+check("feature availability follows the live native row, not a stale cache", () => {
+  assert.ok(sessionSrc.includes("liveElementFor(record)"), "projection must use the live match");
+  const availBlock = sessionSrc.slice(sessionSrc.indexOf("function currentProjection"));
+  assert.ok(
+    availBlock.includes("anchorOk: !!liveEl?.isConnected"),
+    "the sidebar button must not key off a disconnected cached anchor"
+  );
+});
+
 check("v2 never loads the in-place annotation layer", () => {
   assert.equal(sessionSrc.includes("ui.js"), false, "session.js must not import ui.js");
   assert.ok(sessionSrc.includes("restoreFeed"), "session.js must strip leftover v1 paint");

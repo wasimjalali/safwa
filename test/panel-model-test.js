@@ -226,6 +226,25 @@ check("collapse off keeps every copy as its own row", () => {
   assert.equal(rows[1].primary.sourceId, "src_2");
 });
 
+check("extra continuation tails do not bump the next question to چهارم", () => {
+  const records = [
+    record("src_1", "@a", "اول", 1000),
+    record("src_2", "@a", "دوم الف", 2000),
+    record("src_3", "@a", "دوم ب", 2500),
+    record("src_4", "@a", "سوم", 3000),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "extra", hide: false }],
+    ["src_3", { type: "extra", hide: false, extraHead: false }],
+    ["src_4", { type: "extra", hide: false }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows[1].badges.nthQuestionLabel, "سوال دوم این شخص");
+  assert.equal(rows[2].badges.nthQuestionLabel, "سوال دوم این شخص");
+  assert.equal(rows[3].badges.nthQuestionLabel, "سوال سوم این شخص");
+});
+
 check("extraQuestionLabel uses Dari ordinals", () => {
   assert.equal(extraQuestionLabel(2, config), "سوال دوم این شخص");
   assert.equal(extraQuestionLabel(3, config), "سوال سوم این شخص");

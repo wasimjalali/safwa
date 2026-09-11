@@ -236,9 +236,10 @@ export function buildViewRows(records, decisions, config) {
     }
     if (type === "extra") {
       const key = personKey(record);
-      const prior = extraByPerson.get(key) ?? 0;
-      extraByPerson.set(key, prior + 1);
-      const ordinal = prior + 2;
+      if (decision?.extraHead !== false) {
+        extraByPerson.set(key, (extraByPerson.get(key) ?? 0) + 1);
+      }
+      const ordinal = (extraByPerson.get(key) ?? 1) + 1;
       if (decision?.hide) {
         // The teacher asked for one question per person: a confirmed extra
         // is folded (reachable below), never silently dropped.

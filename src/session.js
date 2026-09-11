@@ -408,6 +408,10 @@ export function startSession(deps) {
         }))
         .filter((frag) => frag.sourceId);
     }
+    if (decision.type === "extra") {
+      const frags = decision.block?.fragments;
+      enriched.extraHead = !Array.isArray(frags) || frags[0] === decision.comment;
+    }
     return enriched;
   }
 
@@ -618,12 +622,16 @@ export function startSession(deps) {
     for (const row of projection.rows) {
       const designated = row.feature?.targetSourceId ?? row.primary.sourceId;
       const sourceId = pickConnectedFeatureId(designated, row);
-      const anchor = anchors.get(sourceId);
       const record = admission.getRecord(sourceId);
+      const liveEl = liveElementFor(record);
+      if (liveEl) {
+        const held = anchors.get(sourceId);
+        if (held) held.el = liveEl;
+      }
       const avail = panelModel.featureAvailability({
         enabled: config.FEATURE_PROXY_ENABLED === true,
         sidebar: config.PANEL_MODE === "sidebar",
-        anchorOk: !!anchor?.el?.isConnected,
+        anchorOk: !!liveEl?.isConnected,
         shown: record?.shown,
       });
       row.feature = {
