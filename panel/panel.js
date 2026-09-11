@@ -300,7 +300,8 @@ function render() {
       frag.append(existing);
       continue;
     }
-    const el = renderRow(row);
+    const countOpen = !!(existing && existing.querySelector?.("details.count")?.open);
+    const el = renderRow(row, { countOpen });
     el.__key = key;
     rowEls.set(row.rowId, el);
     frag.append(el);
@@ -358,15 +359,20 @@ function rowKey(row) {
     row.starred,
     row.joinedFragments ?? null,
     row.members ?? null,
+    row.index ?? null,
   ]);
 }
 
-export function renderRow(row) {
+const AIR_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"></rect><path d="M10 9.5v5l5-2.5-5-2.5z" fill="currentColor" stroke="none"></path></svg>';
+const COUNT_TRI =
+  '<svg class="tri" viewBox="0 0 10 10" aria-hidden="true"><path d="M7.8 1.1v7.8L1.6 5z" fill="currentColor"/></svg>';
+
+export function renderRow(row, options = {}) {
   const wrap = document.createElement("article");
   wrap.className = "row";
   wrap.dataset.rowId = row.rowId;
-  if (row.badges?.pendingReview) wrap.classList.add("row--pending");
-  if (row.badges?.secondQuestion) wrap.classList.add("row--second");
+  if (row.badges?.joined) wrap.classList.add("row--joined");
   if (row.shown === "on") wrap.classList.add("row--shown");
 
   const avatarWrap = document.createElement("div");
@@ -389,7 +395,9 @@ export function renderRow(row) {
   platformIconEl.title = row.primary.platformLabel || L.platformUnknown;
   platformIconEl.innerHTML = platformIcon(row.primary.platform);
   avatarWrap.append(avatar, platformIconEl);
-  wrap.append(avatarWrap);
+
+  const body = document.createElement("div");
+  body.className = "row__body";
 
   const meta = document.createElement("div");
   meta.className = "row__meta";
@@ -398,74 +406,79 @@ export function renderRow(row) {
   handle.setAttribute("dir", "auto");
   handle.textContent = row.primary.handle;
   meta.append(handle);
-  if (row.badges?.count) {
-    const count = document.createElement("span");
-    count.className = "chip chip--count";
-    count.textContent = row.badges.countLabel ?? "";
-    meta.append(count);
-  }
-  if (row.badges?.joined) meta.append(chipOf("chip--joined", L.joined));
+  if (row.badges?.joined) meta.append(chipOf("chip--part", L.joinedParts ?? L.joined));
   if (row.badges?.secondQuestion) meta.append(chipOf("chip--second", L.secondQuestion));
-  if (row.badges?.pendingReview) meta.append(chipOf("chip--pending", L.possibleDuplicate));
-  wrap.append(meta);
+  if (row.starred === "on") meta.append(chipOf("chip--star", L.featureStarred));
+  body.append(meta);
 
+  const parts = document.createElement("div");
+  parts.className = row.badges?.joined ? "row__parts" : "";
   const text = document.createElement("div");
   text.className = "row__text";
   text.dir = "auto";
   text.textContent = row.primary.displayText;
-  wrap.append(text);
-
+  parts.append(text);
   if (Array.isArray(row.joinedFragments)) {
     for (const frag of row.joinedFragments) {
       if (frag.sourceId === row.primary.sourceId) continue;
       const el = document.createElement("div");
-      el.className = "joined-frag";
+      el.className = "row__text row__text--part";
       el.dir = "auto";
       el.textContent = frag.displayText;
-      wrap.append(el);
+      parts.append(el);
     }
   }
-
-  const actions = document.createElement("div");
-  actions.className = "row__actions";
-  const feature = document.createElement("button");
-  feature.type = "button";
-  feature.className = "feature";
-  feature.textContent = L[row.feature.labelKey] ?? L.featureShow;
-  feature.disabled = !row.feature.available;
-  if (!row.feature.available) feature.title = L.featureFindNative;
-  feature.addEventListener("click", () => requestFeature(row, feature));
-  actions.append(feature);
-  if (row.shown === "on") {
-    const state = document.createElement("span");
-    state.className = "state";
-    state.textContent = L.featureOnAir;
-    actions.append(state);
-  }
-  if (row.starred === "on") {
-    const star = document.createElement("span");
-    star.className = "state state--star";
-    star.textContent = L.featureStarred;
-    actions.append(star);
-  }
-  wrap.append(actions);
+  body.append(parts);
 
   if (Array.isArray(row.members) && row.members.length > 1) {
     const details = document.createElement("details");
-    details.className = "folded";
-    details.style.gridColumn = "2";
+    details.className = "count";
+    if (options.countOpen) details.open = true;
     const summary = document.createElement("summary");
-    summary.textContent = `${row.badges?.countLabel ?? ""} — ${L.panelFolded}`;
+    const chip = document.createElement("span");
+    chip.className = "chip chip--count";
+    const tri = document.createElement("span");
+    tri.className = "tri-wrap";
+    tri.innerHTML = COUNT_TRI;
+    const label = document.createElement("span");
+    label.textContent = row.badges?.countLabel ?? "";
+    chip.append(tri, label);
+    summary.append(chip);
     details.append(summary);
+    const listEl = document.createElement("div");
+    listEl.className = "count__list";
     for (const member of row.members) {
+      if (member.sourceId === row.primary.sourceId) continue;
       const item = document.createElement("div");
-      item.className = "folded__item";
+      item.className = "count__item";
       item.dir = "auto";
       item.textContent = `${member.handle} — ${member.displayText}`;
-      details.append(item);
+      listEl.append(item);
     }
-    wrap.append(details);
+    details.append(listEl);
+    body.append(details);
   }
+
+  const rail = document.createElement("div");
+  rail.className = "row__rail";
+  const feature = document.createElement("button");
+  feature.type = "button";
+  feature.className = row.shown === "on" ? "air is-on" : "air";
+  feature.innerHTML = AIR_ICON;
+  const onAir = row.shown === "on";
+  feature.setAttribute(
+    "aria-label",
+    onAir ? L.featureOnAir : (L[row.feature?.labelKey] ?? L.featureShow)
+  );
+  feature.disabled = !row.feature?.available || row.shown === "pending";
+  if (!row.feature?.available) feature.title = L.featureFindNative;
+  feature.addEventListener("click", () => requestFeature(row, feature));
+  const num = document.createElement("span");
+  num.className = "num";
+  num.textContent = row.indexLabel ?? "";
+  rail.append(feature, num);
+
+  wrap.append(avatarWrap, body, rail);
   return wrap;
 }
 
@@ -507,10 +520,10 @@ function requestFeature(row, button) {
       if (result.outcome === "refused") {
         button.disabled = false;
         button.title = L.featureFindNative;
-        button.textContent = L[row.feature.labelKey] ?? L.featureShow;
+        button.setAttribute("aria-label", L[row.feature.labelKey] ?? L.featureShow);
       } else {
-        // clicked or unknown: stay disabled until validated shown state returns.
-        button.textContent = L.featureCheckBroadcast;
+        // Stay disabled until the next projection flips availability.
+        button.setAttribute("aria-label", L.featureCheckBroadcast);
       }
     },
   });

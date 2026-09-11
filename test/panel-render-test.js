@@ -67,10 +67,15 @@ globalThis.document = {
   querySelector: () => element(),
   createElement: (tag) => element(tag),
   createDocumentFragment: () => element("fragment"),
+  createTextNode: (text) => {
+    const n = element("text");
+    n.textContent = String(text ?? "");
+    return n;
+  },
 };
 
 globalThis.chrome = {
-  runtime: { getManifest: () => ({ version: "2.0.0" }), sendMessage() {} },
+  runtime: { getManifest: () => ({ version: "2.0.1" }), sendMessage() {} },
   tabs: {
     query: async () => [],
     connect: () => ({ postMessage() {}, onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, disconnect() {} }),
@@ -113,6 +118,8 @@ const row = {
   feature: { available: true, reasonCode: null, labelKey: "featureShow" },
   shown: "unknown",
   starred: "unknown",
+  index: 1,
+  indexLabel: "۱",
 };
 
 check("renderRow renders without throwing and carries the row id", () => {
@@ -145,17 +152,60 @@ check("duplicate members render a reachable disclosure", () => {
   const text = walk(el).map((n) => n.textContent).join(" | ");
   assert.ok(text.includes("@hanna"), "second member is listed");
   const summaries = walk(el).some(
-    (n) => typeof n.className === "string" && n.className.includes("folded")
+    (n) => typeof n.className === "string" && n.className.includes("count")
   );
-  assert.ok(summaries, "folded disclosure exists");
+  assert.ok(summaries, "count disclosure exists");
 });
 
 check("a row without members renders no disclosure", () => {
   const el = renderRow({ ...row, members: undefined, badges: {} });
   const foldeds = walk(el).filter(
-    (n) => typeof n.className === "string" && n.className.includes("folded")
+    (n) => typeof n.className === "string" && n.className.includes("count")
   );
   assert.equal(foldeds.length, 0);
+});
+
+check("feature control is an icon button and the number sits in a circle", () => {
+  const el = renderRow(row);
+  const air = walk(el).filter((n) => n.className === "air");
+  assert.equal(air.length, 1);
+  assert.match(air[0].innerHTML, /<svg/);
+  const nums = walk(el).filter((n) => n.className === "num");
+  assert.equal(nums.length, 1);
+  assert.equal(nums[0].textContent, "۱");
+});
+
+check("pending review does not paint a maybe-duplicate badge", () => {
+  const el = renderRow({
+    ...row,
+    members: undefined,
+    badges: { pendingReview: true },
+  });
+  const text = walk(el).map((n) => n.textContent).join(" | ");
+  assert.equal(text.includes("شاید"), false);
+  assert.equal(el.classList.contains("row--pending"), false);
+});
+
+check("continuation keeps both parts readable under one number", () => {
+  const el = renderRow({
+    ...row,
+    members: undefined,
+    badges: { joined: true },
+    joinedFragments: [
+      { sourceId: "src_1", handle: "@iamwasim.jalali", displayText: "سلام استاد، آیا نماز در سفر قصر خوانده می‌شود؟" },
+      { sourceId: "src_2", handle: "@iamwasim.jalali", displayText: "اگر کمتر از ده روز باشد چطور؟" },
+    ],
+  });
+  assert.equal(el.classList.contains("row--joined"), true);
+  const parts = walk(el).filter(
+    (n) => typeof n.className === "string" && n.className.includes("row__text--part")
+  );
+  assert.equal(parts.length, 1);
+  assert.ok(parts[0].textContent.includes("ده روز"));
+  const chips = walk(el).filter(
+    (n) => typeof n.className === "string" && n.className.includes("chip--part")
+  );
+  assert.equal(chips.length, 1);
 });
 
 console.log(`panel-render tests: ${passed} passed, ${failed} failed`);

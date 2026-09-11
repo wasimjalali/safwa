@@ -61,8 +61,33 @@ function baseRow(record, config) {
     },
     badges: {},
     feature: { available: false, reasonCode: null, labelKey: "featureShow" },
-    shown: record.shown === "on" ? "on" : "unknown",
+    shown: record.shown === "on" ? "on" : record.shown === "pending" ? "pending" : "unknown",
     starred: record.starred === "on" ? "on" : "unknown",
+  };
+}
+
+/**
+ * Single source of truth for whether the sidebar may send a feature click.
+ * On-air is clickable (teacher toggle). Pending / cooling are not.
+ */
+export function featureAvailability({
+  enabled,
+  sidebar,
+  anchorOk,
+  shown,
+  coolingUntil = 0,
+  now = 0,
+}) {
+  const cooling = typeof coolingUntil === "number" && coolingUntil > 0 && now < coolingUntil;
+  const available =
+    enabled === true &&
+    sidebar === true &&
+    anchorOk === true &&
+    shown !== "pending" &&
+    !cooling;
+  return {
+    available,
+    reasonCode: available ? null : "featureFindNative",
   };
 }
 
@@ -95,18 +120,42 @@ export function buildViewRows(records, decisions, config) {
   });
 
   const featureFor = (record, joined) => {
-    const enabled =
-      config?.FEATURE_PROXY_ENABLED === true && config?.PANEL_MODE === "sidebar";
-    const available =
-      enabled && record.domAnchor === true && record.shown !== "on" && record.shown !== "pending";
+    const avail = featureAvailability({
+      enabled: config?.FEATURE_PROXY_ENABLED === true,
+      sidebar: config?.PANEL_MODE === "sidebar",
+      anchorOk: record.domAnchor === true,
+      shown: record.shown,
+    });
     return {
-      available,
-      reasonCode: available ? null : "featureFindNative",
+      available: avail.available,
+      reasonCode: avail.reasonCode,
       labelKey: joined ? "featureShowFirst" : "featureShow",
     };
   };
 
-  // Pass 1: rows for non-duplicate, non-hidden records.
+  const fragmentShape = (f) => ({
+    sourceId: f.sourceId,
+    handle: f.handle ?? "",
+    displayText: f.displayText ?? "",
+    admittedAt: f.admittedAt ?? null,
+  });
+
+  const headIdOf = (decision) => {
+    const frags = decision?.joinedFragments;
+    if (!Array.isArray(frags) || frags.length === 0) return null;
+    return frags[0].sourceId ?? null;
+  };
+
+  const applyJoined = (row, decision) => {
+    if (!Array.isArray(decision?.joinedFragments) || decision.joinedFragments.length === 0) return;
+    row.badges.joined = true;
+    row.joinedFragments = decision.joinedFragments.map(fragmentShape);
+    const headRecord = bySource.get(row.primary.sourceId);
+    if (headRecord) row.feature = featureFor(headRecord, true);
+  };
+
+  // Pass 1: rows for non-duplicate, non-hidden, non-continuation-tail records.
+  // A split question is one card: later fragments attach in pass 2.
   for (const record of bySource.values()) {
     const { decision } = rowBySource.get(record.sourceId);
     const type = decision?.type ?? "primary";
@@ -117,17 +166,16 @@ export function buildViewRows(records, decisions, config) {
     }
     if (type === "duplicate") continue; // folded onto the target below
 
+    if (type === "continuation") {
+      const headId = headIdOf(decision);
+      if (headId && headId !== record.sourceId) continue;
+    }
+
     const row = baseRow(record, config);
     row.feature = featureFor(record, Array.isArray(decision?.joinedFragments));
 
     if (type === "continuation" && Array.isArray(decision.joinedFragments)) {
-      row.badges.joined = true;
-      row.joinedFragments = decision.joinedFragments.map((f) => ({
-        sourceId: f.sourceId,
-        handle: f.handle ?? "",
-        displayText: f.displayText ?? "",
-        admittedAt: f.admittedAt ?? null,
-      }));
+      applyJoined(row, decision);
     }
     if (type === "extra") {
       if (decision?.hide) {
@@ -164,6 +212,28 @@ export function buildViewRows(records, decisions, config) {
     row.members.push(memberShape(record));
   }
 
+  // Pass 3: continuation tails join the first fragment's row (one number).
+  for (const record of bySource.values()) {
+    const { decision } = rowBySource.get(record.sourceId);
+    if (decision?.type !== "continuation" || !Array.isArray(decision.joinedFragments)) continue;
+    const headId = headIdOf(decision) ?? record.sourceId;
+    let targetIndex = aroundIndex(rows, rowIndexBySource, headId);
+    if (targetIndex === -1 && record.sourceId === headId) {
+      targetIndex = aroundIndex(rows, rowIndexBySource, record.sourceId);
+    }
+    if (targetIndex === -1) {
+      // Head never became a row (folded/missing): keep the joined question
+      // reachable as one card instead of dropping the fragments.
+      const row = baseRow(record, config);
+      applyJoined(row, decision);
+      rowIndexBySource.set(row.primary.sourceId, rows.length);
+      if (headId) rowIndexBySource.set(headId, rows.length);
+      rows.push(row);
+      continue;
+    }
+    applyJoined(rows[targetIndex], decision);
+  }
+
   for (const row of rows) {
     if (row.badges.count) {
       row.badges.countLabel = (config?.LABELS?.askedTimes ?? "{n} بار").replace(
@@ -171,6 +241,11 @@ export function buildViewRows(records, decisions, config) {
         digits(row.badges.count, persian)
       );
     }
+  }
+
+  for (let i = 0; i < rows.length; i += 1) {
+    rows[i].index = i + 1;
+    rows[i].indexLabel = digits(i + 1, true);
   }
 
   return { rows, folded };
