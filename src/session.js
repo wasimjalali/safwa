@@ -65,6 +65,7 @@ export function startSession(deps) {
   let publishTimer = null;
   let pendingSnapshot = false;
   let publishedKeys = new Map();
+  let publishedFoldKey = "";
 
   let container = null;
   let observer = null;
@@ -75,6 +76,10 @@ export function startSession(deps) {
 
   try {
     chrome.runtime?.onMessage?.addListener((message, sender, sendResponse) => {
+      if (message?.type === "safwa-ping") {
+        sendResponse({ ok: true, version: chrome.runtime?.getManifest?.().version ?? "?" });
+        return true;
+      }
       if (message?.type !== "FEATURE_REQUEST") return;
       if (sender?.id !== chrome.runtime.id || sender.tab) {
         sendResponse(refuse("featureFindNative"));
@@ -432,6 +437,7 @@ export function startSession(deps) {
       settingsRevision,
       sourceId,
       contentRevision: admission.getRecord(sourceId)?.admissionSeq ?? 0,
+      contentText: comment.displayText,
     };
     try {
       const result = await llm.classifyComment(
@@ -441,12 +447,20 @@ export function startSession(deps) {
         llm.llmContextFromDecision(comment, decision)
       );
       llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
-      if (!result) return;
+      if (!result) {
+        llmFailures.push(Date.now());
+        if (llmFailures.length >= 3) {
+          llmPausedUntil = Date.now() + LLM_PAUSE_MS;
+          llmFailures = [];
+        }
+        return;
+      }
       if (guard.documentToken !== documentToken) return;
       if (guard.sessionEpoch !== sessionEpoch) return;
       if (guard.settingsRevision !== settingsRevision) return;
       const record = admission.getRecord(sourceId);
       if (!record || record.admissionSeq !== guard.contentRevision) return;
+      if (record.displayText !== guard.contentText) return;
       const next = grouping.applyLlmOverride(decision, result, state, config);
       if (!next || next === decision) return;
       storeDecision(sourceId, next);
@@ -458,6 +472,7 @@ export function startSession(deps) {
       }
       publish(false);
     } catch {
+      llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
       llmFailures.push(Date.now());
       if (llmFailures.length >= 3) {
         llmPausedUntil = Date.now() + LLM_PAUSE_MS;
@@ -482,6 +497,9 @@ export function startSession(deps) {
       objectSource.set(copy, record.sourceId);
       const decision = grouping.processComment(copy, state, config);
       storeDecision(record.sourceId, decision);
+      if (decision.needsLlmReview && config.LLM_ENABLED) {
+        scheduleLlm(copy, decision, record.sourceId);
+      }
     }
   }
 
@@ -515,7 +533,8 @@ export function startSession(deps) {
         config.FEATURE_PROXY_ENABLED &&
         config.PANEL_MODE === "sidebar" &&
         !!anchor?.el?.isConnected &&
-        record?.shown !== "on";
+        record?.shown !== "on" &&
+        record?.shown !== "pending";
       row.feature = {
         available,
         reasonCode: available ? null : "featureFindNative",
@@ -546,17 +565,18 @@ export function startSession(deps) {
       for (const id of publishedKeys.keys()) {
         if (!nextKeys.has(id)) removals.push(id);
       }
+      const foldKey = JSON.stringify(projection.folded);
+      const changed =
+        wantSnapshot || upserts.length > 0 || removals.length > 0 || foldKey !== publishedFoldKey;
+      if (!changed) return; // a true no-op publishes nothing and burns no revision
       publishedKeys = nextKeys;
+      publishedFoldKey = foldKey;
       revision += 1;
       for (const port of ports) {
         try {
           if (wantSnapshot) {
             sendSnapshot(port, rows, projection.folded);
           } else {
-            if (upserts.length === 0 && removals.length === 0) {
-              port.safwaRevision = revision;
-              continue;
-            }
             port.postMessage(
               protocol.makeEnvelope(protocol.MESSAGE_TYPES.PATCH, {
                 documentToken,
@@ -743,6 +763,9 @@ export function startSession(deps) {
     if (!verdict.ok) return finish(request.requestId, refuse(verdict.reasonCode ?? "featureFindNative"));
     const clicked = dom.clickShowButton(anchor.el);
     if (!clicked) return finish(request.requestId, refuse("featureFindNative"));
+    // Latch the one validated click in the model: every later snapshot/rebuild
+    // must keep the button disabled so it can never toggle the comment off air.
+    if (record) record.shown = "pending";
     return finish(request.requestId, FEATURE_OK);
   }
 

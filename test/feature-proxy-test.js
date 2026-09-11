@@ -92,6 +92,11 @@ check("already shown refuses (never toggle off air)", () => {
   assert.equal(checkFeatureRequest({ ...happy, record: shownRecord }).ok, false);
 });
 
+check("a latched click (pending) refuses a second click", () => {
+  const pendingRecord = { ...record, shown: "pending" };
+  assert.equal(checkFeatureRequest({ ...happy, record: pendingRecord }).ok, false);
+});
+
 check("recycled row content mismatch refuses", () => {
   assert.equal(
     checkFeatureRequest({ ...happy, liveRow: { ...liveRow, displayText: "متن دیگر" } }).ok,

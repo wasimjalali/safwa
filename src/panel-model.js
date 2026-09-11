@@ -94,7 +94,8 @@ export function buildViewRows(records, decisions, config) {
   const featureFor = (record, joined) => {
     const enabled =
       config?.FEATURE_PROXY_ENABLED === true && config?.PANEL_MODE === "sidebar";
-    const available = enabled && record.domAnchor === true && record.shown !== "on";
+    const available =
+      enabled && record.domAnchor === true && record.shown !== "on" && record.shown !== "pending";
     return {
       available,
       reasonCode: available ? null : "featureFindNative",

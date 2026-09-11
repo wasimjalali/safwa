@@ -309,6 +309,7 @@ export const CONFIG = {
     panelSimpleMode: "حالت ساده",
     panelNewItems: "سوال‌های تازه",
     panelFolded: "نظرهای جمع‌شده",
+    panelOlder: "سوال‌های قدیمی‌تر",
     panelSettingsBack: "بازگشت",
     platformUnknown: "نامشخص",
 

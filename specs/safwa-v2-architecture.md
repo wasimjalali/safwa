@@ -439,7 +439,7 @@ Unchanged and reaffirmed: `AUTO_HIDE_ANYTHING_AMBIGUOUS: false`, pipeline order,
 
 ```js
 // Sidebar chrome
-panelTitle: "صفوة — سوال‌های پخش",                        // "Safwa — broadcast questions"
+panelTitle: "صفوة — سوال‌های برنامه زنده",                        // "Safwa — broadcast questions"
 panelLoading: "در حال آماده شدن…",                          // "getting ready…"
 panelWaiting: "در انتظار سوال‌ها",                          // "waiting for questions"
 panelOpenStudio: "استودیوی StreamYard را باز کنید",         // "open the StreamYard studio"
@@ -452,11 +452,11 @@ panelSettingsBack: "بازگشت",                                 // "back"
 platformUnknown: "نامشخص",                                   // "unknown" (platform chip fallback)
 
 // Feature proxy
-featureShow: "نمایش در پخش",                                // "show on the broadcast"
+featureShow: "نمایش در برنامه زنده",                                // "show on the broadcast"
 featureShowFirst: "نمایش بخش اول",                          // "show the first fragment" (joined rows)
 featureFindNative: "برای نمایش، نظر را در ستون اصلی پیدا کنید", // "to feature it, find the comment in the native column"
-featureCheckBroadcast: "نمایش را در پخش بررسی کنید",        // "check the broadcast to verify"
-featureOnAir: "روی پخش",                                     // "on air" (validated shown state only)
+featureCheckBroadcast: "نمایش را در برنامه زنده بررسی کنید",        // "check the broadcast to verify"
+featureOnAir: "روی برنامه زنده",                                     // "on air" (validated shown state only)
 featureStarred: "ستاره‌دار",                                 // "starred"
 ```
 

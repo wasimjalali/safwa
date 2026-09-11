@@ -36,6 +36,7 @@ let lastHealthAt = Date.now();
 let savedScrollTop = 0;
 const pendingFeature = new Map();
 const WINDOW_CAP = 1200;
+let lastWindowCount = 0;
 
 app.hidden = false;
 document.getElementById("static-failure").hidden = true;
@@ -88,7 +89,13 @@ async function init() {
   setInterval(() => {
     if (!port || Date.now() - lastHealthAt < 4000) return;
     setStatus(L.panelDisconnected);
-    port.postMessage(makeEnvelope(MESSAGE_TYPES.RESYNC, envelopeFields()));
+    try {
+      port.postMessage(makeEnvelope(MESSAGE_TYPES.RESYNC, envelopeFields()));
+    } catch {
+      port = null;
+      tabId = null;
+      scheduleRebind();
+    }
     lastHealthAt = Date.now();
   }, CONFIG.PANEL.healthIntervalMs);
   chrome.storage?.onChanged?.addListener((changes, area) => {
@@ -153,6 +160,8 @@ async function bindTab() {
   port = chrome.tabs.connect(tab.id, { name: PORT_NAME, frameId: 0 });
   port.onMessage.addListener(onPortMessage);
   port.onDisconnect.addListener(() => {
+    port = null;
+    tabId = null;
     boundTab = false;
     setStatus(L.panelDisconnected);
     scheduleRebind();
@@ -258,6 +267,7 @@ function render() {
   const wasNearEnd = nearEnd();
   const prevScroll = list.scrollTop;
   const prevHeight = list.scrollHeight;
+  const grewWindow = windowCount !== lastWindowCount;
 
   if (rows.length === 0 && folded.length === 0) {
     list.replaceChildren(emptyNode(L.panelWaiting));
@@ -272,7 +282,7 @@ function render() {
     older.style.position = "static";
     older.style.transform = "none";
     older.style.margin = "8px auto";
-    older.textContent = `${L.panelFolded} (${rows.length - windowCount}+)`;
+    older.textContent = `${L.panelOlder} (${rows.length - windowCount}+)`;
     older.addEventListener("click", () => {
       windowCount = Math.min(WINDOW_CAP, windowCount + CONFIG.PANEL.maxMountedRows);
       render();
@@ -318,10 +328,15 @@ function render() {
 
   if (wasNearEnd) {
     list.scrollTop = list.scrollHeight;
-  } else {
+  } else if (grewWindow) {
+    // "load older" prepends rows: compensate by the added height.
     list.scrollTop = prevScroll + (list.scrollHeight - prevHeight);
+  } else {
+    // Comments append at the bottom; the viewport must not move.
+    list.scrollTop = prevScroll;
     if (arrivedNew) newItems.hidden = false;
   }
+  lastWindowCount = windowCount;
 }
 
 function emptyNode(text) {
@@ -496,13 +511,18 @@ function requestFeature(row, button) {
   });
   setTimeout(() => {
     const entry = pendingFeature.get(requestId);
-    if (entry) {
-      // Never re-enable on an unknown outcome: a second click could toggle the
-      // broadcast off. Ask the content session for the recorded outcome.
-      entry.resolve({ outcome: "unknown", reasonCode: "featureCheckBroadcast" });
+    if (!entry) return;
+    pendingFeature.delete(requestId); // one-shot: a late reply is ignored
+    // Never re-enable on an unknown outcome: a second click could toggle the
+    // broadcast off. Ask the content session for the recorded outcome.
+    entry.resolve({ outcome: "unknown", reasonCode: "featureCheckBroadcast" });
+    try {
       port?.postMessage(
         makeEnvelope(MESSAGE_TYPES.ACTION_STATUS, { ...envelopeFields(), requestId })
       );
+    } catch {
+      port = null;
+      tabId = null;
     }
   }, CONFIG.FEATURE_PROXY.ackTimeoutMs);
 }

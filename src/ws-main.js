@@ -85,6 +85,7 @@
   var openCount = 0;
   var healthTimer = null;
   var counters = { oversize: 0, nonText: 0, queueDropped: 0 };
+  var droppedByKey = Object.create(null); // endpointKey -> drops (attribution)
 
   var LIFECYCLE = {
     constructed: '{"event":"constructed"}',
@@ -128,6 +129,8 @@
       var dropped = queue.shift();
       queueBytes -= dropped.bytes;
       counters.queueDropped += 1;
+      var dropKey = dropped.env && dropped.env.endpointKey;
+      if (dropKey) droppedByKey[dropKey] = (droppedByKey[dropKey] || 0) + 1;
     }
     queue.push({
       bytes: size,
@@ -176,19 +179,19 @@
       stopHealth();
       return;
     }
-    var stats =
-      '{"sockets":' +
-      openCount +
-      ',"oversize":' +
-      counters.oversize +
-      ',"nonText":' +
-      counters.nonText +
-      ',"queueDropped":' +
-      counters.queueDropped +
-      "}";
     var ids = Object.keys(openSockets);
     for (var i = 0; i < ids.length; i++) {
       var socket = openSockets[ids[i]];
+      var stats =
+        '{"sockets":' +
+        openCount +
+        ',"oversize":' +
+        counters.oversize +
+        ',"nonText":' +
+        counters.nonText +
+        ',"queueDropped":' +
+        (droppedByKey[socket.key] || 0) +
+        "}";
       enqueue("health", socket.key, ids[i], socket.gen, ++socket.seq, stats);
     }
   }
@@ -248,7 +251,10 @@
 
     socket.addEventListener("error", function () {
       try {
-        if (openSockets[id]) delete openSockets[id];
+        if (openSockets[id]) {
+          delete openSockets[id];
+          openCount -= 1;
+        }
         if (!stopped) enqueue("lifecycle", key, id, gen, ++state.seq, LIFECYCLE.error);
       } catch (e) {
         // Fail safe.
