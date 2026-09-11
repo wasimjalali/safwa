@@ -629,6 +629,23 @@ test("reset clears records, indexes, pending candidates and the sequence", () =>
   assert.equal(api.correlate().updated.length, 0, "pending candidates were cleared too");
 });
 
+
+test("sticky pending: a pre-click shownSet cannot re-arm a latched record", () => {
+  const { api } = admissionWith("enrich");
+  const [first] = roomComments("comment.created.first");
+  const admitted = api.admitDom(domFrom(first, { timestamp: 10 }));
+  const rec = api.getRecord(admitted.sourceId);
+  rec.commentId = "c1";
+  rec.broadcastId = "b1";
+  rec.shown = "pending";
+
+  api.applyStateEvents([{ kind: "shownSet", broadcastId: "b1", shownCommentIds: [] }]);
+  assert.equal(rec.shown, "pending", "a set without the id keeps the latch");
+
+  api.applyStateEvents([{ kind: "shownSet", broadcastId: "b1", shownCommentIds: ["c1"] }]);
+  assert.equal(rec.shown, "on", "the id promotes pending to on");
+});
+
 // =====================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed > 0 ? 1 : 0;

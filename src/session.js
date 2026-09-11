@@ -773,10 +773,7 @@ export function startSession(deps) {
     if (!clicked) return finish(request.requestId, refuse("featureFindNative"));
     // Latch the one validated click in the model: every later snapshot/rebuild
     // must keep the button disabled so it can never toggle the comment off air.
-    if (record) {
-      record.shown = "pending";
-      record.clickedAt = Date.now();
-    }
+    if (record) record.shown = "pending";
     return finish(request.requestId, FEATURE_OK);
   }
 

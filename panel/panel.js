@@ -507,6 +507,7 @@ function requestFeature(row, button) {
       if (result.outcome === "refused") {
         button.disabled = false;
         button.title = L.featureFindNative;
+        button.textContent = L[row.feature.labelKey] ?? L.featureShow;
       } else {
         // clicked or unknown: stay disabled until validated shown state returns.
         button.textContent = L.featureCheckBroadcast;
