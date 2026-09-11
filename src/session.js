@@ -15,7 +15,16 @@
  * The native StreamYard panel is never written to in any mode.
  */
 
-import { checkFeatureRequest as checkProxyRequest, sameFeatureGroup } from "./proxy-rules.js";
+import {
+  checkFeatureRequest as checkProxyRequest,
+  pickFeatureCandidate,
+  pickLiveMatch,
+  ownerIdForElement,
+  offClickAllowed,
+  groupShownState,
+  sameFeatureGroup,
+} from "./proxy-rules.js";
+import { hasLegacyMarks, restoreFeed, restoreRow } from "./native-restore.js";
 
 const TAG = "[Ṣafwa]";
 const DEBOUNCE_MS = 80;
@@ -58,6 +67,7 @@ export function startSession(deps) {
   let lastHref = location.origin + location.pathname;
 
   const decisions = new Map();
+  const llmOutcomes = new Map();
   const objectSource = new WeakMap();
   const anchors = new Map();
   const occurrenceRegistry = new Map(); // fingerprint -> { sourceId, ref: WeakRef<node> }
@@ -154,12 +164,14 @@ export function startSession(deps) {
     }
     startWs();
     setInterval(() => {
-      health.tick();
-      const snap = health.snapshot();
-      if (snap.bridge?.state === "demoted" || snap.room?.state === "demoted") {
-        wsState = "demoted";
-      } else if (config.WS_MODE !== "off" && wsState === "starting") {
-        wsState = config.WS_MODE;
+      if (config.WS_MODE !== "off") {
+        health.tick();
+        const snap = health.snapshot();
+        if (snap.bridge?.state === "demoted" || snap.room?.state === "demoted") {
+          wsState = "demoted";
+        } else if (wsState === "starting") {
+          wsState = config.WS_MODE;
+        }
       }
       publishHealth();
     }, config.PANEL.healthIntervalMs);
@@ -191,6 +203,7 @@ export function startSession(deps) {
     const reattach = container !== null;
     container = next;
     console.log(`${TAG} comments container found; sidebar session active.`);
+    restoreFeed(container, () => dom.collectCommentNodes(container));
     for (const node of dom.collectCommentNodes(container)) pending.add(node);
     schedule();
 
@@ -277,6 +290,7 @@ export function startSession(deps) {
    *   - no registry hit -> admit a new occurrence
    */
   function handleRow(node) {
+    if (hasLegacyMarks(node)) restoreRow(node);
     const comment = dom.extractComment(node);
     if (!comment) return;
     if (admissionMod.isStreamYardSampleComment(comment)) return;
@@ -398,6 +412,10 @@ export function startSession(deps) {
         }))
         .filter((frag) => frag.sourceId);
     }
+    if (decision.type === "extra") {
+      const frags = decision.block?.fragments;
+      enriched.extraHead = !Array.isArray(frags) || frags[0] === decision.comment;
+    }
     return enriched;
   }
 
@@ -474,11 +492,15 @@ export function startSession(deps) {
       }
       if (guard.documentToken !== documentToken) return;
       if (guard.sessionEpoch !== sessionEpoch) return;
-      if (guard.settingsRevision !== settingsRevision) return;
-      if (guard.rebuildEpoch !== rebuildEpoch) return;
       const record = admission.getRecord(sourceId);
       if (!record || record.admissionSeq !== guard.contentRevision) return;
       if (record.displayText !== guard.contentText) return;
+      llmOutcomes.set(sourceId, result);
+      if (guard.settingsRevision !== settingsRevision || guard.rebuildEpoch !== rebuildEpoch) {
+        rebuildFromRecords();
+        publish(true);
+        return;
+      }
       const next = grouping.applyLlmOverride(decision, result, state, config);
       if (!next || next === decision) return;
       storeDecision(sourceId, next);
@@ -514,9 +536,22 @@ export function startSession(deps) {
         timestamp: record.admittedAt,
       };
       objectSource.set(copy, record.sourceId);
-      const decision = grouping.processComment(copy, state, config);
+      let decision = grouping.processComment(copy, state, config);
+      const prior = config.LLM_ENABLED ? llmOutcomes.get(record.sourceId) : null;
+      if (prior) {
+        const next = grouping.applyLlmOverride(decision, prior, state, config);
+        if (next) {
+          decision = next;
+          for (const extra of next.alsoRender ?? []) {
+            const extraId = sourceOf(extra?.comment);
+            if (extraId && extra?.comment) {
+              decisions.set(extraId, enrichDecision({ ...extra, target: null, block: extra.block }));
+            }
+          }
+        }
+      }
       storeDecision(record.sourceId, decision);
-      if (decision.needsLlmReview && config.LLM_ENABLED) {
+      if (decision.needsLlmReview && config.LLM_ENABLED && !prior) {
         scheduleLlm(copy, decision, record.sourceId);
       }
     }
@@ -527,6 +562,7 @@ export function startSession(deps) {
     admission.reset();
     state = stateMod.createState();
     decisions.clear();
+    llmOutcomes.clear();
     anchors.clear();
     occurrenceRegistry.clear();
     receipts.clear();
@@ -542,35 +578,105 @@ export function startSession(deps) {
 
   /* --------------------------------------------------------------- publish */
 
-  function pickConnectedFeatureId(preferredId, row) {
-    const preferred = anchors.get(preferredId);
-    if (preferred?.el?.isConnected) return preferredId;
-    const prefRec = admission.getRecord(preferredId);
-    for (const member of row.members ?? []) {
-      const id = member?.sourceId;
-      if (!id || id === preferredId) continue;
-      const rec = admission.getRecord(id);
-      const anchor = anchors.get(id);
-      if (!anchor?.el?.isConnected || !prefRec || !rec) continue;
-      if ((rec.handle ?? "") !== (prefRec.handle ?? "")) continue;
-      if ((rec.platform ?? "") !== (prefRec.platform ?? "")) continue;
-      return id;
+  function liveElementFor(record) {
+    if (!record) return null;
+    const held = anchors.get(record.sourceId);
+    const ownEl = held?.el?.isConnected ? held.el : null;
+    let ownMatches = false;
+    if (ownEl) {
+      try {
+        ownMatches = dom.commentMatches(dom.extractComment(ownEl), record);
+      } catch {
+        ownMatches = false;
+      }
     }
-    return preferredId;
+    const matches = container ? dom.findMatchingCommentNodes(container, record) : [];
+    const claimed = new Set();
+    for (const [id, anchor] of anchors) {
+      if (id === record.sourceId || !anchor?.el?.isConnected) continue;
+      claimed.add(anchor.el);
+    }
+    return pickLiveMatch({ ownEl, ownMatches, matches, claimed });
+  }
+
+  function bindOwnAnchor(sourceId, el) {
+    if (!el) return;
+    for (const [id, held] of anchors) {
+      if (id !== sourceId && held?.el === el) return;
+    }
+    const held = anchors.get(sourceId);
+    if (held) held.el = el;
+  }
+
+  function sourceIdOwning(el, fallbackId) {
+    const holdings = [];
+    for (const [id, held] of anchors) {
+      if (held?.el) holdings.push([id, held.el]);
+    }
+    return ownerIdForElement(el, holdings, fallbackId);
+  }
+
+  function featureCandidateFrom(preferredId, extraIds = [], wantOn) {
+    const prefRec = admission.getRecord(preferredId);
+    const ids = [preferredId];
+    for (const id of extraIds) {
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+    const candidates = ids.map((id) => {
+      const rec = admission.getRecord(id);
+      const el = rec ? liveElementFor(rec) : null;
+      const button = el ? dom.findShowButton(el) : null;
+      return {
+        id,
+        connected: !!el,
+        sameIdentity: !!(
+          prefRec &&
+          rec &&
+          rec.handle === prefRec.handle &&
+          (rec.platform ?? "") === (prefRec.platform ?? "")
+        ),
+        hasButton: !!(button && !button.disabled),
+        admissionSeq: rec?.admissionSeq ?? 0,
+      };
+    });
+    return pickFeatureCandidate(candidates, {
+      requestedId: preferredId,
+      wantOn: wantOn ?? prefRec?.shown !== "on",
+    });
+  }
+
+  function featureIdsForRow(row) {
+    const designated = row.feature?.targetSourceId ?? row.primary.sourceId;
+    const ids = [designated];
+    for (const member of row.members ?? []) {
+      if (member?.sourceId && !ids.includes(member.sourceId)) ids.push(member.sourceId);
+    }
+    return ids;
+  }
+
+  function onAirId(ids) {
+    return ids.find((id) => {
+      const shown = admission.getRecord(id)?.shown;
+      return shown === "on" || shown === "pending";
+    });
   }
 
   function currentProjection() {
     const projection = panelModel.buildViewRows(admission.records(), decisions, config);
     for (const row of projection.rows) {
-      const designated = row.feature?.targetSourceId ?? row.primary.sourceId;
-      const sourceId = pickConnectedFeatureId(designated, row);
-      const anchor = anchors.get(sourceId);
+      const groupIds = featureIdsForRow(row);
+      const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
+      const sourceId =
+        featureCandidateFrom(onAirId(groupIds) ?? groupIds[0], groupIds, groupShown === "unknown") ??
+        groupIds[0];
       const record = admission.getRecord(sourceId);
+      const liveEl = liveElementFor(record);
+      bindOwnAnchor(sourceId, liveEl);
       const avail = panelModel.featureAvailability({
         enabled: config.FEATURE_PROXY_ENABLED === true,
         sidebar: config.PANEL_MODE === "sidebar",
-        anchorOk: !!anchor?.el?.isConnected,
-        shown: record?.shown,
+        anchorOk: !!liveEl?.isConnected,
+        shown: groupShown,
       });
       row.feature = {
         available: avail.available,
@@ -580,7 +686,7 @@ export function startSession(deps) {
         contentRevision: record?.admissionSeq ?? null,
       };
       if (record) {
-        row.shown = record.shown === "on" ? "on" : record.shown === "pending" ? "pending" : "unknown";
+        row.shown = groupShown === "on" ? "on" : groupShown === "pending" ? "pending" : "unknown";
         row.starred = record.starred === "on" ? "on" : "unknown";
       }
     }
@@ -778,22 +884,28 @@ export function startSession(deps) {
     ) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
-    let anchor = anchors.get(sourceId);
-    if (!anchor?.el?.isConnected && requested) {
-      for (const [otherId, other] of anchors) {
-        if (!other?.el?.isConnected) continue;
-        if (!sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) continue;
-        const rec = admission.getRecord(otherId);
-        if (!rec || rec.handle !== requested.handle) continue;
-        if ((rec.platform ?? "") !== (requested.platform ?? "")) continue;
-        sourceId = otherId;
-        anchor = other;
-        break;
+    if (container) restoreFeed(container, () => dom.collectCommentNodes(container));
+    const groupIds = [];
+    for (const otherId of decisions.keys()) {
+      if (sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) {
+        groupIds.push(otherId);
       }
     }
+    const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
+    sourceId =
+      featureCandidateFrom(onAirId(groupIds) ?? sourceId, groupIds, groupShown === "unknown") ??
+      sourceId;
     const record = admission.getRecord(sourceId);
-    const anchorConnected = !!anchor?.el?.isConnected;
-    const live = anchorConnected ? dom.extractComment(anchor.el) : null;
+    const liveEl = liveElementFor(record);
+    if (liveEl) restoreRow(liveEl);
+    bindOwnAnchor(sourceId, liveEl);
+    const ownerId = sourceIdOwning(liveEl, sourceId);
+    const clickedRec = admission.getRecord(ownerId) ?? record;
+    if (!offClickAllowed(groupShown, clickedRec?.shown)) {
+      return finish(request.requestId, refuse("featureFindNative"));
+    }
+    const anchorConnected = !!liveEl?.isConnected;
+    const live = anchorConnected ? dom.extractComment(liveEl) : null;
     let twinCount = 0;
     if (live) {
       for (const [otherId, other] of anchors) {
@@ -810,7 +922,7 @@ export function startSession(deps) {
         }
       }
     }
-    const button = anchorConnected ? dom.findShowButton(anchor.el) : null;
+    const button = anchorConnected ? dom.findShowButton(liveEl) : null;
     const verdict = checkProxyRequest({
       request: {
         ...request,
@@ -826,33 +938,42 @@ export function startSession(deps) {
       enabled: config.FEATURE_PROXY_ENABLED,
       now: Date.now(),
     });
-    if (record && Date.now() < (record.featureCoolingUntil ?? 0)) {
+    if (
+      (record && Date.now() < (record.featureCoolingUntil ?? 0)) ||
+      (clickedRec && clickedRec !== record && Date.now() < (clickedRec.featureCoolingUntil ?? 0))
+    ) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
     if (!verdict.ok) return finish(request.requestId, refuse(verdict.reasonCode ?? "featureFindNative"));
-    const clicked = dom.clickShowButton(anchor.el);
+    const clicked = dom.clickShowButton(liveEl);
     if (!clicked) return finish(request.requestId, refuse("featureFindNative"));
     // One validated native click, then reflect on/off locally so the sidebar
     // icon stays in sync. A short cool-down blocks a second click (the native
     // control is a toggle). WS shownSet still overrides in enrich/primary.
-    if (record) {
-      const wasOn = record.shown === "on";
+    if (clickedRec) {
+      const wasOn = groupShown === "on";
       const wsReflectsShown = config.WS_MODE === "enrich" || config.WS_MODE === "primary";
       const coolMs = config.FEATURE_PROXY?.ackTimeoutMs ?? 1000;
       const offLatchMs = config.WS_LIMITS?.featureStateMs ?? 15000;
       if (wasOn) {
-        record.shown = "unknown";
-        record.shownOffUntil = Date.now() + offLatchMs;
+        for (const id of groupIds) {
+          const rec = admission.getRecord(id);
+          if (!rec) continue;
+          if (rec.shown === "on" || rec.shown === "pending") {
+            rec.shown = "unknown";
+            rec.shownOffUntil = Date.now() + offLatchMs;
+          }
+        }
       } else if (wsReflectsShown) {
-        record.shown = "pending";
-        record.shownOffUntil = 0;
+        clickedRec.shown = "pending";
+        clickedRec.shownOffUntil = 0;
       } else {
-        record.shown = "on";
-        record.shownOffUntil = 0;
+        clickedRec.shown = "on";
+        clickedRec.shownOffUntil = 0;
       }
       // Request-time only: do not bake cooling into the published row or the
       // icon stays disabled until some later comment republishes.
-      record.featureCoolingUntil = Date.now() + coolMs;
+      clickedRec.featureCoolingUntil = Date.now() + coolMs;
     }
     publish(false);
     return finish(request.requestId, FEATURE_OK);

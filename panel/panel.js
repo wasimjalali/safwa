@@ -7,7 +7,7 @@
 
 import { CONFIG, STORAGE_KEYS } from "../src/config.js";
 import { isStreamYardUrl, readPinnedTabId } from "../src/inject.js";
-import { platformIcon } from "../src/panel-model.js";
+import { platformIcon, statusLine } from "../src/panel-model.js";
 import { MESSAGE_TYPES, PORT_NAME, makeEnvelope } from "../src/protocol.js";
 
 const L = CONFIG.LABELS;
@@ -103,6 +103,7 @@ async function init() {
     if (area !== "local") return;
     if (STORAGE_KEYS.enabled in changes) {
       enabled = changes[STORAGE_KEYS.enabled].newValue !== false;
+      masterEl.checked = enabled;
       paintEnabledState();
     }
     for (const row of SETTING_ROWS) {
@@ -269,6 +270,7 @@ function onPortMessage(message) {
       lastHealthAt = Date.now();
       lastHealth = { observer: message.observer ?? "ok", wsState: message.wsState ?? "off" };
       enabled = message.enabled !== false;
+      masterEl.checked = enabled;
       paintStatus();
       paintEnabledState();
       break;
@@ -289,14 +291,18 @@ function onPortMessage(message) {
 }
 
 function setStatus(text) {
-  statusEl.textContent = text ?? "";
+  const next = text ?? "";
+  statusEl.textContent = next;
+  statusEl.hidden = !next;
 }
 
 function paintStatus() {
-  if (lastHealth.observer === "unavailable") setStatus(L.panelKeepCommentsOpen);
-  else if (lastHealth.wsState === "demoted") setStatus(L.panelKeepCommentsOpen);
-  else if (!enabled) setStatus(L.popupStatusOff);
-  else setStatus("");
+  const key = statusLine({
+    observer: lastHealth.observer,
+    wsState: lastHealth.wsState,
+    enabled,
+  });
+  setStatus(key ? L[key] : "");
 }
 
 function paintEnabledState() {
@@ -451,7 +457,9 @@ export function renderRow(row, options = {}) {
   handle.textContent = row.primary.handle;
   meta.append(handle);
   if (row.badges?.joined) meta.append(chipOf("chip--part", L.joinedParts ?? L.joined));
-  if (row.badges?.secondQuestion) meta.append(chipOf("chip--second", L.secondQuestion));
+  if (row.badges?.nthQuestionLabel || row.badges?.secondQuestion) {
+    meta.append(chipOf("chip--second", row.badges.nthQuestionLabel || L.secondQuestion));
+  }
   if (row.starred === "on") meta.append(chipOf("chip--star", L.featureStarred));
   body.append(meta);
 

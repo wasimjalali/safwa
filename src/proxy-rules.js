@@ -21,6 +21,58 @@ export function sameFeatureGroup(sourceId, otherId, sourceDecision, otherDecisio
 }
 
 /**
+ * Which mounted node belongs to one occurrence. Prefer that record's own
+ * connected matching anchor. Fall back to the last match no other copy owns.
+ */
+export function pickLiveMatch({ ownEl, ownMatches, matches, claimed } = {}) {
+  if (ownEl && ownMatches) return ownEl;
+  const list = Array.isArray(matches) ? matches : [];
+  const taken = claimed instanceof Set ? claimed : new Set(claimed ?? []);
+  const unclaimed = list.filter((el) => !taken.has(el));
+  return unclaimed.length ? unclaimed[unclaimed.length - 1] : null;
+}
+
+/** Turning off must hit a node the on-air occurrence owns. Any doubt refuses. */
+export function offClickAllowed(groupShown, ownerShown) {
+  if (groupShown !== "on" && groupShown !== "pending") return true;
+  return ownerShown === "on" || ownerShown === "pending";
+}
+
+/** The occurrence that already owns this node; otherwise the fallback id. */
+export function ownerIdForElement(el, holdings, fallbackId) {
+  if (!el) return fallbackId ?? null;
+  for (const [id, heldEl] of holdings ?? []) {
+    if (heldEl === el) return id;
+  }
+  return fallbackId ?? null;
+}
+
+/** Collapsed copies share one on-air lamp; a later repeat must not clear it. */
+export function groupShownState(states) {
+  const list = Array.isArray(states) ? states : [];
+  if (list.some((s) => s === "on")) return "on";
+  if (list.some((s) => s === "pending")) return "pending";
+  return "unknown";
+}
+
+/**
+ * Which same-group occurrence to click. A lone row stays that row. Several
+ * live copies of one question: put the newest on air — StreamYard often
+ * no-ops the first recycled slot. Turning off keeps the requested row.
+ * Another author's copy is never a candidate (`sameIdentity` must be true).
+ */
+export function pickFeatureCandidate(candidates, { requestedId, wantOn = true } = {}) {
+  const live = (candidates ?? []).filter(
+    (c) => c && c.connected && c.sameIdentity && c.hasButton
+  );
+  if (live.length === 0) return null;
+  if (live.length === 1 || wantOn === false) {
+    return live.find((c) => c.id === requestedId)?.id ?? live[0].id;
+  }
+  return live.slice().sort((a, b) => (b.admissionSeq ?? 0) - (a.admissionSeq ?? 0))[0].id;
+}
+
+/**
  * @param {object} facts
  * @param {object} facts.request   validated FEATURE_REQUEST payload
  * @param {{documentToken: string, sessionEpoch: number}} facts.session

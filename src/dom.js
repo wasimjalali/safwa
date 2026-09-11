@@ -178,6 +178,33 @@ export function clickShowButton(commentNode) {
   }
 }
 
+/** True when a live extract is the same native comment the proxy asked for. */
+export function commentMatches(live, wanted) {
+  if (!live || !wanted) return false;
+  return (
+    (live.platform ?? "") === (wanted.platform ?? "") &&
+    live.handle === wanted.handle &&
+    live.displayText === wanted.displayText
+  );
+}
+
+/**
+ * Current DOM nodes whose handle/text/platform match `wanted`.
+ * Virtualized lists remount slots; this is the live set, not the cached anchor.
+ */
+export function findMatchingCommentNodes(container, wanted) {
+  if (!container || !wanted) return [];
+  try {
+    const out = [];
+    for (const node of collectCommentNodes(container)) {
+      if (commentMatches(extractComment(node), wanted)) out.push(node);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export function extractComment(commentNode) {
   if (!commentNode) return null;
 

@@ -5,7 +5,16 @@
  */
 
 import assert from "node:assert/strict";
-import { checkFeatureRequest, featureGroupId, sameFeatureGroup } from "../src/proxy-rules.js";
+import {
+  checkFeatureRequest,
+  featureGroupId,
+  pickFeatureCandidate,
+  pickLiveMatch,
+  ownerIdForElement,
+  offClickAllowed,
+  groupShownState,
+  sameFeatureGroup,
+} from "../src/proxy-rules.js";
 
 let passed = 0;
 let failed = 0;
@@ -127,6 +136,111 @@ check("collapsed same-person copies are one feature group, not twins", () => {
     sameFeatureGroup("src_1", "src_9", { type: "primary" }, { type: "primary" }),
     false
   );
+});
+
+function cand(id, extra = {}) {
+  return {
+    id,
+    connected: true,
+    sameIdentity: true,
+    hasButton: true,
+    admissionSeq: Number(String(id).replace(/\D/g, "")) || 0,
+    ...extra,
+  };
+}
+
+check("pickLiveMatch prefers the occurrence's own node over a later copy", () => {
+  const own = { id: "own" };
+  const newer = { id: "newer" };
+  assert.equal(
+    pickLiveMatch({ ownEl: own, ownMatches: true, matches: [own, newer], claimed: new Set() }),
+    own
+  );
+});
+
+check("pickLiveMatch refuses when every match already belongs to another copy", () => {
+  const older = { id: "older" };
+  const newer = { id: "newer" };
+  assert.equal(
+    pickLiveMatch({
+      ownEl: null,
+      ownMatches: false,
+      matches: [older, newer],
+      claimed: new Set([older, newer]),
+    }),
+    null
+  );
+  assert.equal(offClickAllowed("on", "unknown"), false);
+  assert.equal(offClickAllowed("on", "on"), true);
+  assert.equal(offClickAllowed("unknown", "unknown"), true);
+});
+
+check("pickLiveMatch falls back to the last unclaimed match", () => {
+  const older = { id: "older" };
+  const newer = { id: "newer" };
+  assert.equal(
+    pickLiveMatch({ ownEl: null, ownMatches: false, matches: [older, newer], claimed: new Set([older]) }),
+    newer
+  );
+});
+
+check("shown follows the node that was clicked", () => {
+  const a = { id: "a" };
+  const b = { id: "b" };
+  assert.equal(ownerIdForElement(b, [["src_1", a], ["src_6", b]], "src_1"), "src_6");
+});
+
+check("a lone live row is the feature candidate", () => {
+  assert.equal(pickFeatureCandidate([cand("src_1", { admissionSeq: 1 })], { requestedId: "src_1" }), "src_1");
+});
+
+check("duplicate group features the newest live copy, not the first", () => {
+  assert.equal(
+    pickFeatureCandidate(
+      [cand("src_1", { admissionSeq: 1 }), cand("src_6", { admissionSeq: 6 }), cand("src_3", { admissionSeq: 3 })],
+      { requestedId: "src_1", wantOn: true }
+    ),
+    "src_6"
+  );
+});
+
+check("group on-air stays on when a later copy is still unknown", () => {
+  assert.equal(groupShownState(["unknown", "on", "unknown"]), "on");
+  assert.equal(groupShownState(["pending", "unknown"]), "pending");
+  assert.equal(groupShownState(["unknown", "unknown"]), "unknown");
+  assert.equal(
+    pickFeatureCandidate(
+      [cand("src_1", { admissionSeq: 1 }), cand("src_6", { admissionSeq: 6 }), cand("src_9", { admissionSeq: 9 })],
+      { requestedId: "src_6", wantOn: false }
+    ),
+    "src_6",
+    "a new repeat must not retarget an already-on card"
+  );
+});
+
+check("turning a comment off keeps the requested row", () => {
+  assert.equal(
+    pickFeatureCandidate(
+      [cand("src_1", { admissionSeq: 1 }), cand("src_6", { admissionSeq: 6 })],
+      { requestedId: "src_1", wantOn: false }
+    ),
+    "src_1"
+  );
+});
+
+check("disconnected or other-author copies are never substituted", () => {
+  assert.equal(
+    pickFeatureCandidate(
+      [
+        cand("src_1", { admissionSeq: 1, connected: false }),
+        cand("src_2", { admissionSeq: 2, sameIdentity: false }),
+        cand("src_3", { admissionSeq: 3 }),
+      ],
+      { requestedId: "src_1", wantOn: true }
+    ),
+    "src_3"
+  );
+  assert.equal(pickFeatureCandidate([], { requestedId: "src_1" }), null);
 });
 
 check("missing or duplicated button refuses", () => {

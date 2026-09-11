@@ -15,6 +15,7 @@
  */
 
 import { isStreamYardSampleComment } from "./admission.js";
+import { foldHandle } from "./normalize.js";
 
 export const PLATFORM_ICONS = {
   youtube:
@@ -40,6 +41,31 @@ const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
 
 function digits(n, persian) {
   return persian ? String(n).replace(/[0-9]/g, (d) => FA_DIGITS[d]) : String(n);
+}
+
+const FA_ORDINALS = {
+  2: "دوم",
+  3: "سوم",
+  4: "چهارم",
+  5: "پنجم",
+  6: "ششم",
+  7: "هفتم",
+  8: "هشتم",
+  9: "نهم",
+  10: "دهم",
+};
+
+/** Badge text for this person's 2nd / 3rd / 4th question. */
+export function extraQuestionLabel(ordinal, config) {
+  const n = Number(ordinal);
+  if (!Number.isFinite(n) || n < 2) return "";
+  if (n === 2 && config?.LABELS?.secondQuestion) return config.LABELS.secondQuestion;
+  const word = FA_ORDINALS[n] ?? String(n);
+  return (config?.LABELS?.nthQuestion ?? "سوال {n} این شخص").replace("{n}", word);
+}
+
+function personKey(record) {
+  return `${record.platform ?? ""}::${foldHandle(record.handle ?? "")}`;
 }
 
 function platformLabel(record, config) {
@@ -105,7 +131,9 @@ export function buildViewRows(records, decisions, config) {
   const folded = [];
   const bySource = new Map();
   const rowBySource = new Map();
+  const extraByPerson = new Map();
   const persian = config?.USE_PERSIAN_DIGITS_IN_UI === true;
+  const collapseDups = config?.AUTO_COLLAPSE_EXACT_DUPLICATES !== false;
 
   for (const record of records ?? []) {
     if (!record || !record.sourceId) continue;
@@ -193,7 +221,7 @@ export function buildViewRows(records, decisions, config) {
       folded.push(memberShape(record));
       continue;
     }
-    if (type === "duplicate") continue; // folded onto the target below
+    if (type === "duplicate" && collapseDups) continue; // folded onto the target below
 
     if (type === "continuation") {
       const headId = headIdOf(decision);
@@ -207,13 +235,20 @@ export function buildViewRows(records, decisions, config) {
       applyJoined(row, decision);
     }
     if (type === "extra") {
+      const key = personKey(record);
+      if (decision?.extraHead !== false) {
+        extraByPerson.set(key, (extraByPerson.get(key) ?? 0) + 1);
+      }
+      const ordinal = (extraByPerson.get(key) ?? 1) + 1;
       if (decision?.hide) {
-        // The teacher asked for one question per person: a confirmed second
-        // question is folded (reachable below), never silently dropped.
+        // The teacher asked for one question per person: a confirmed extra
+        // is folded (reachable below), never silently dropped.
         folded.push(memberShape(record));
         continue;
       }
       row.badges.secondQuestion = true;
+      row.badges.nthQuestion = ordinal;
+      row.badges.nthQuestionLabel = extraQuestionLabel(ordinal, config);
     }
     if (decision?.pendingReview) {
       row.badges.pendingReview = true;
@@ -225,6 +260,7 @@ export function buildViewRows(records, decisions, config) {
 
   // Pass 2: duplicates fold onto their target representative with a count.
   for (const record of bySource.values()) {
+    if (!collapseDups) break;
     const { decision } = rowBySource.get(record.sourceId);
     if (decision?.type !== "duplicate") continue;
     const targetId = decision.targetSourceId;
@@ -288,6 +324,17 @@ function aroundIndex(rows, indexBySource, targetId) {
     if (members.some((m) => m.sourceId === targetId)) return i;
   }
   return -1;
+}
+
+/**
+ * Teacher-facing banner. Empty while the sidebar is reading comments.
+ * A WS demotion is not a comments-column problem (production is DOM-only).
+ */
+export function statusLine({ observer, wsState, enabled }) {
+  void wsState;
+  if (observer === "unavailable") return "panelKeepCommentsOpen";
+  if (enabled === false) return "popupStatusOff";
+  return null;
 }
 
 /** Health/observer state -> a LABELS key for the panel's status line. */

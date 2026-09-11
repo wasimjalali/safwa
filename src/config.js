@@ -224,6 +224,7 @@ export const CONFIG = {
     askedTimes: "{n} بار پرسیده شد", // "asked {n} times"
     possibleDuplicate: "شاید تکراری باشد", // "it may be a duplicate"
     secondQuestion: "سوال دوم این شخص", // "this person's second question"
+    nthQuestion: "سوال {n} این شخص", // {n} is a Dari ordinal (دوم، سوم، …)
     semanticDuplicate: "شاید تکراری باشد", // same wording as possibleDuplicate; teacher sees one idea
 
     // Popup (the bar that opens when the extension icon is clicked).
@@ -262,7 +263,7 @@ export const CONFIG = {
       "در «سوال‌های جمع‌شده» همچنان قابل دیدن است.",
     ],
     settingHideExtraOff: [
-      "سوال دوم در ستون می‌ماند و با نشانهٔ «سوال دوم این شخص» مشخص می‌شود.",
+      "سوال‌های بعدی در ستون می‌مانند و با شماره (دوم، سوم، …) مشخص می‌شوند.",
     ],
 
     settingJoin: "وصل کردن ادامه‌ی سوال",

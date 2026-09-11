@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { buildViewRows, describeHealth, featureAvailability, platformIcon, PLATFORM_ICONS } from "../src/panel-model.js";
+import { buildViewRows, describeHealth, extraQuestionLabel, featureAvailability, platformIcon, PLATFORM_ICONS, statusLine } from "../src/panel-model.js";
 import { CONFIG } from "../src/config.js";
 
 let passed = 0;
@@ -166,7 +166,89 @@ check("unconfirmed extra stays visible with the second-question badge", () => {
   const decisions = new Map([["src_1", { type: "extra", hide: false }]]);
   const { rows, folded } = buildViewRows(records, decisions, config);
   assert.equal(rows[0].badges.secondQuestion, true);
+  assert.equal(rows[0].badges.nthQuestion, 2);
+  assert.equal(rows[0].badges.nthQuestionLabel, "سوال دوم این شخص");
   assert.equal(folded.length, 0);
+});
+
+check("later extras from the same person are 3rd and 4th, not stuck on 2nd", () => {
+  const records = [
+    record("src_1", "@a", "سوال اول", 1000),
+    record("src_2", "@a", "سوال دوم", 2000),
+    record("src_3", "@a", "سوال سوم", 3000),
+    record("src_4", "@a", "سوال چهارم", 4000),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "extra", hide: false }],
+    ["src_3", { type: "extra", hide: false }],
+    ["src_4", { type: "extra", hide: false }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].badges.nthQuestionLabel, undefined);
+  assert.equal(rows[1].badges.nthQuestionLabel, "سوال دوم این شخص");
+  assert.equal(rows[2].badges.nthQuestionLabel, "سوال سوم این شخص");
+  assert.equal(rows[3].badges.nthQuestionLabel, "سوال چهارم این شخص");
+});
+
+check("hidden extras still advance the person's question number", () => {
+  const records = [
+    record("src_1", "@a", "اول", 1000),
+    record("src_2", "@a", "دوم پنهان", 2000),
+    record("src_3", "@a", "سوم پیدا", 3000),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "extra", hide: true }],
+    ["src_3", { type: "extra", hide: false }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1].badges.nthQuestion, 3);
+  assert.equal(rows[1].badges.nthQuestionLabel, "سوال سوم این شخص");
+});
+
+check("collapse off keeps every copy as its own row", () => {
+  const off = Object.assign({}, config, { AUTO_COLLAPSE_EXACT_DUPLICATES: false });
+  const records = [
+    record("src_1", "@a", "زکات؟", 1000),
+    record("src_2", "@b", "زکات؟", 1500),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "duplicate", targetSourceId: "src_1", count: 2 }],
+  ]);
+  const { rows, folded } = buildViewRows(records, decisions, off);
+  assert.equal(rows.length, 2, "teacher toggle off must not fold copies");
+  assert.equal(folded.length, 0);
+  assert.equal(rows[0].badges.count, undefined);
+  assert.equal(rows[1].primary.sourceId, "src_2");
+});
+
+check("extra continuation tails do not bump the next question to چهارم", () => {
+  const records = [
+    record("src_1", "@a", "اول", 1000),
+    record("src_2", "@a", "دوم الف", 2000),
+    record("src_3", "@a", "دوم ب", 2500),
+    record("src_4", "@a", "سوم", 3000),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "extra", hide: false }],
+    ["src_3", { type: "extra", hide: false, extraHead: false }],
+    ["src_4", { type: "extra", hide: false }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.equal(rows[1].badges.nthQuestionLabel, "سوال دوم این شخص");
+  assert.equal(rows[2].badges.nthQuestionLabel, "سوال دوم این شخص");
+  assert.equal(rows[3].badges.nthQuestionLabel, "سوال سوم این شخص");
+});
+
+check("extraQuestionLabel uses Dari ordinals", () => {
+  assert.equal(extraQuestionLabel(2, config), "سوال دوم این شخص");
+  assert.equal(extraQuestionLabel(3, config), "سوال سوم این شخص");
+  assert.equal(extraQuestionLabel(4, config), "سوال چهارم این شخص");
 });
 
 check("confirmed extra is hidden but stays reachable in folded", () => {
@@ -274,6 +356,20 @@ check("describeHealth maps states to label keys", () => {
   assert.equal(describeHealth("off", "disconnected", config), "panelDisconnected");
   assert.equal(describeHealth("off", "simple", config), "panelSimpleMode");
   assert.equal(describeHealth("off", "loading", config), "panelLoading");
+});
+
+check("statusLine stays empty when the DOM session is healthy", () => {
+  assert.equal(statusLine({ observer: "ok", wsState: "off", enabled: true }), null);
+  assert.equal(
+    statusLine({ observer: "ok", wsState: "demoted", enabled: true }),
+    null,
+    "WS-off demotion must not nag about the comments column"
+  );
+});
+
+check("statusLine only asks to open comments when the container is gone", () => {
+  assert.equal(statusLine({ observer: "unavailable", wsState: "off", enabled: true }), "panelKeepCommentsOpen");
+  assert.equal(statusLine({ observer: "ok", wsState: "off", enabled: false }), "popupStatusOff");
 });
 
 console.log(`panel-model tests: ${passed} passed, ${failed} failed`);

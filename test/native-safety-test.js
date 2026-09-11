@@ -38,6 +38,32 @@ check("the StreamYard example card is rejected before admission", () => {
   );
 });
 
+check("on-air state is shared across collapsed copies", () => {
+  assert.ok(sessionSrc.includes("groupShownState"), "repeats of one card share one on-air lamp");
+});
+
+check("a click does not steal another copy's native node", () => {
+  assert.ok(sessionSrc.includes("pickLiveMatch"), "own connected anchor wins over last text match");
+  assert.ok(sessionSrc.includes("bindOwnAnchor"), "one occurrence must not adopt another copy's node");
+  assert.ok(sessionSrc.includes("sourceIdOwning"), "shown is written on the row that was clicked");
+  assert.ok(sessionSrc.includes("offClickAllowed"), "off-air must refuse a node another copy owns");
+});
+
+check("feature availability follows the live native row, not a stale cache", () => {
+  assert.ok(sessionSrc.includes("liveElementFor(record)"), "projection must use the live match");
+  const availBlock = sessionSrc.slice(sessionSrc.indexOf("function currentProjection"));
+  assert.ok(
+    availBlock.includes("anchorOk: !!liveEl?.isConnected"),
+    "the sidebar button must not key off a disconnected cached anchor"
+  );
+});
+
+check("v2 never loads the in-place annotation layer", () => {
+  assert.equal(sessionSrc.includes("ui.js"), false, "session.js must not import ui.js");
+  assert.ok(sessionSrc.includes("restoreFeed"), "session.js must strip leftover v1 paint");
+  assert.ok(sessionSrc.includes("native-restore.js"), "restore lives outside session writes");
+});
+
 check("v2 session.js performs no native DOM writes", () => {
   for (const forbidden of [
     ".classList.add",
@@ -89,7 +115,7 @@ check("the only native action call in session.js is the validated click", () => 
   const writeCalls = calls.filter((c) =>
     ["dom.clickShowButton", "dom.findShowButton", "dom.extractComment", "dom.collectCommentNodes",
      "dom.commentNodesWithin", "dom.closestCommentNode", "dom.findCommentContainer", "dom.cardAnchor",
-     "dom.selectorsConfirmed"].includes(c)
+     "dom.selectorsConfirmed", "dom.findMatchingCommentNodes", "dom.commentMatches"].includes(c)
   );
   assert.equal(writeCalls.length, calls.length, "no unknown dom write API is used");
   assert.ok(sessionSrc.includes("dom.clickShowButton"), "the click goes through dom.js");
