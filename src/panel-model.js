@@ -120,6 +120,32 @@ export function featureAvailability({
   };
 }
 
+/** Source ids that share one sidebar card's on-air lamp. */
+export function featureIdsForRow(row) {
+  const designated = row?.feature?.targetSourceId ?? row?.primary?.sourceId;
+  if (!designated) return [];
+  const ids = [designated];
+  for (const member of row.members ?? []) {
+    if (member?.sourceId && !ids.includes(member.sourceId)) ids.push(member.sourceId);
+  }
+  return ids;
+}
+
+/**
+ * Click membership matches the lamp. Collapse-off cards are one id; a
+ * folded duplicate card includes every member. Unknown ids stay solo.
+ */
+export function featureGroupIdsForClick(requestedId, rows) {
+  if (!requestedId) return [];
+  const row = (rows ?? []).find(
+    (r) =>
+      r?.primary?.sourceId === requestedId ||
+      r?.feature?.targetSourceId === requestedId ||
+      (r.members ?? []).some((m) => m?.sourceId === requestedId)
+  );
+  return row ? featureIdsForRow(row) : [requestedId];
+}
+
 /**
  * @param {Array} records admission records in admission order
  * @param {Map<string, object>} decisions sourceId -> enriched decision

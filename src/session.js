@@ -645,15 +645,6 @@ export function startSession(deps) {
     });
   }
 
-  function featureIdsForRow(row) {
-    const designated = row.feature?.targetSourceId ?? row.primary.sourceId;
-    const ids = [designated];
-    for (const member of row.members ?? []) {
-      if (member?.sourceId && !ids.includes(member.sourceId)) ids.push(member.sourceId);
-    }
-    return ids;
-  }
-
   function onAirId(ids) {
     return ids.find((id) => {
       const shown = admission.getRecord(id)?.shown;
@@ -664,7 +655,7 @@ export function startSession(deps) {
   function currentProjection() {
     const projection = panelModel.buildViewRows(admission.records(), decisions, config);
     for (const row of projection.rows) {
-      const groupIds = featureIdsForRow(row);
+      const groupIds = panelModel.featureIdsForRow(row);
       const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
       const sourceId =
         featureCandidateFrom(onAirId(groupIds) ?? groupIds[0], groupIds, groupShown === "unknown") ??
@@ -885,12 +876,8 @@ export function startSession(deps) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
     if (container) restoreFeed(container, () => dom.collectCommentNodes(container));
-    const groupIds = [];
-    for (const otherId of decisions.keys()) {
-      if (sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) {
-        groupIds.push(otherId);
-      }
-    }
+    const { rows } = panelModel.buildViewRows(admission.records(), decisions, config);
+    const groupIds = panelModel.featureGroupIdsForClick(sourceId, rows);
     const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
     sourceId =
       featureCandidateFrom(onAirId(groupIds) ?? sourceId, groupIds, groupShown === "unknown") ??

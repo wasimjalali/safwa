@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { buildViewRows, describeHealth, extraQuestionLabel, featureAvailability, platformIcon, PLATFORM_ICONS, statusLine } from "../src/panel-model.js";
+import { buildViewRows, describeHealth, extraQuestionLabel, featureAvailability, featureGroupIdsForClick, featureIdsForRow, platformIcon, PLATFORM_ICONS, statusLine } from "../src/panel-model.js";
 import { CONFIG } from "../src/config.js";
 
 let passed = 0;
@@ -224,6 +224,22 @@ check("collapse off keeps every copy as its own row", () => {
   assert.equal(folded.length, 0);
   assert.equal(rows[0].badges.count, undefined);
   assert.equal(rows[1].primary.sourceId, "src_2");
+  assert.deepEqual(featureGroupIdsForClick("src_2", rows), ["src_2"]);
+  assert.deepEqual(featureGroupIdsForClick("src_1", rows), ["src_1"]);
+});
+
+check("collapsed copies share one click group; collapse-off does not", () => {
+  const records = [
+    record("src_1", "@a", "زکات؟", 1000),
+    record("src_2", "@b", "زکات؟", 1500),
+  ];
+  const decisions = new Map([
+    ["src_1", { type: "primary" }],
+    ["src_2", { type: "duplicate", targetSourceId: "src_1", count: 2 }],
+  ]);
+  const { rows } = buildViewRows(records, decisions, config);
+  assert.deepEqual(featureIdsForRow(rows[0]).sort(), ["src_1", "src_2"]);
+  assert.deepEqual(featureGroupIdsForClick("src_2", rows).sort(), ["src_1", "src_2"]);
 });
 
 check("extra continuation tails do not bump the next question to چهارم", () => {
