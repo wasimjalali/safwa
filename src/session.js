@@ -84,6 +84,8 @@ export function startSession(deps) {
   let attempts = 0;
   let scheduled = false;
   let settingsError = false;
+  let settingsRecovery = false;
+  let nativeReadWarned = false;
   const changedSettings = {};
   const pending = new Set();
 
@@ -126,6 +128,7 @@ export function startSession(deps) {
         .get(null)
         .then((items) => {
           const current = { ...items, ...changedSettings };
+          settingsError = false;
           applyStoredSettings(config, readStoredSettings(current));
           masterEnabled = current[STORAGE_KEYS.enabled] !== false;
           tryFind();
@@ -141,6 +144,10 @@ export function startSession(deps) {
         for (const key of Object.values(STORAGE_KEYS)) {
           if (key in changes) changedSettings[key] = changes[key].newValue;
         }
+        if (settingsError) {
+          recoverSettings();
+          return;
+        }
         if (STORAGE_KEYS.enabled in changes) {
           settingsRevision += 1;
           masterEnabled = changes[STORAGE_KEYS.enabled].newValue !== false;
@@ -149,6 +156,7 @@ export function startSession(deps) {
             for (const node of dom.collectCommentNodes(container)) pending.add(node);
             schedule();
           }
+          publish(false);
           publishHealth();
         }
         if (STORAGE_KEYS.resetAt in changes) {
@@ -175,7 +183,10 @@ export function startSession(deps) {
         rebuildFromRecords();
         publish(true);
       });
-    } catch {
+    } catch (err) {
+      settingsError = true;
+      masterEnabled = false;
+      console.error(`${TAG} settings unavailable; filtering paused.`, err);
       tryFind();
     }
     startWs();
@@ -191,6 +202,37 @@ export function startSession(deps) {
       }
       publishHealth();
     }, config.PANEL.healthIntervalMs);
+  }
+
+  async function recoverSettings() {
+    if (settingsRecovery) return;
+    settingsRecovery = true;
+    try {
+      // A partial storage event cannot recover preferences that failed to load.
+      // Reread all settings before allowing capture or AI to resume.
+      const items = await chrome.storage.local.get(null);
+      const current = { ...items, ...changedSettings };
+      applyStoredSettings(config, readStoredSettings(current));
+      masterEnabled = current[STORAGE_KEYS.enabled] !== false;
+      settingsError = false;
+      settingsRevision += 1;
+      cancelLlm();
+      rebuildFromRecords();
+      if (masterEnabled && container?.isConnected) {
+        for (const node of dom.collectCommentNodes(container)) pending.add(node);
+        schedule();
+      }
+      publish(true);
+      publishHealth();
+    } catch (err) {
+      settingsError = true;
+      masterEnabled = false;
+      cancelLlm();
+      publishHealth();
+      console.error(`${TAG} settings still unavailable; filtering remains paused.`, err);
+    } finally {
+      settingsRecovery = false;
+    }
   }
 
   const ROWS_REQUIRED_UNTIL = Math.floor(CONTAINER_POLL_MAX * 0.7);
@@ -294,7 +336,11 @@ export function startSession(deps) {
     scheduled = false;
     const nodes = [...pending];
     pending.clear();
-    if (!masterEnabled) return;
+    // Release detached nodes even when capture is paused.
+    for (const anchor of anchors.values()) {
+      if (!anchor.el?.isConnected) anchor.el = null;
+    }
+    if (!masterEnabled) { publish(false); return; }
     if (location.origin + location.pathname !== lastHref) return;
     for (const node of nodes) {
       try {
@@ -304,11 +350,7 @@ export function startSession(deps) {
         console.warn(`${TAG} error processing a comment; skipping it.`, err);
       }
     }
-    // Remounts and removals change native-action availability even when no
-    // new question was admitted. Release detached DOM nodes as well.
-    for (const anchor of anchors.values()) {
-      if (!anchor.el?.isConnected) anchor.el = null;
-    }
+    // Remounts can change native-action availability without new admission.
     publish(false);
   }
 
@@ -669,7 +711,10 @@ export function startSession(deps) {
       let live;
       try { live = dom.extractComment(node); }
       catch {
-        console.warn(`${TAG} native comment could not be read; skipping its display action.`);
+        if (!nativeReadWarned) {
+          nativeReadWarned = true;
+          console.warn(`${TAG} native comment could not be read; skipping affected display actions.`);
+        }
         continue;
       }
       if (!live) continue;
@@ -988,11 +1033,12 @@ export function startSession(deps) {
     const { rows } = panelModel.buildViewRows(admission.records(), decisions, config);
     const groupIds = panelModel.featureGroupIdsForClick(sourceId, rows);
     const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
+    const index = nativeIndex();
     sourceId =
-      featureCandidateFrom(onAirId(groupIds) ?? sourceId, groupIds, groupShown === "unknown") ??
+      featureCandidateFrom(onAirId(groupIds) ?? sourceId, groupIds, groupShown === "unknown", index) ??
       sourceId;
     const record = admission.getRecord(sourceId);
-    const liveEl = liveElementFor(record);
+    const liveEl = liveElementFor(record, index);
     if (liveEl) restoreRow(liveEl);
     bindOwnAnchor(sourceId, liveEl);
     const ownerId = sourceIdOwning(liveEl, sourceId);
@@ -1001,13 +1047,13 @@ export function startSession(deps) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
     const anchorConnected = !!liveEl?.isConnected;
-    const live = anchorConnected ? dom.extractComment(liveEl) : null;
+    const live = anchorConnected ? index.liveByNode.get(liveEl) : null;
     let twinCount = 0;
     if (live) {
       for (const [otherId, other] of anchors) {
         if (otherId === sourceId || !other?.el?.isConnected) continue;
         if (sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) continue;
-        const otherLive = dom.extractComment(other.el);
+        const otherLive = index.liveByNode.get(other.el);
         if (
           otherLive &&
           (otherLive.platform ?? "") === (live.platform ?? "") &&

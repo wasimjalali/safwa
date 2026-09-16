@@ -25,7 +25,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <ul>
 <li><strong>Website content (StreamYard comment feed):</strong> the extension reads the comments visible on the StreamYard studio page in your browser, including author names and comment text, to detect duplicates and continuations.</li>
 <li><strong>Personal communications (comment text):</strong> when a comment is ambiguous, its text may be sent to the developer's own classification endpoint (this Worker, <code>safwa-llm.karko-ai.workers.dev</code>), which runs a language model to decide whether two comments ask the same question. The sidebar also loads viewer avatar images from their HTTPS image providers without a referrer.</li>
-<li><strong>Local preference:</strong> the on/off state and five filter preferences is saved in your browser's local extension storage. It never leaves your browser.</li>
+<li><strong>Local preference:</strong> the on/off state and five filter preferences are saved in your browser's local extension storage. It never leaves your browser.</li>
 </ul>
 
 <h2>What we do not do</h2>

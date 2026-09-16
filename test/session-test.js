@@ -14,7 +14,7 @@ let passed = 0;
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn); }, fire(...args) { this.listeners.forEach(fn => fn(...args)); } });
 
-async function harness({ ai = false, classify, initial = {}, duringLoad } = {}) {
+async function harness({ ai = false, classify, initial = {}, duringLoad, failFirstRead = false } = {}) {
   let time = 100000;
   let nextTimer = 0;
   const timers = new Map();
@@ -33,9 +33,11 @@ async function harness({ ai = false, classify, initial = {}, duringLoad } = {}) 
   };
   const onConnect = event(), onMessage = event(), onChanged = event();
   const prefs = { [STORAGE_KEYS.llmEnabled]: ai, ...initial };
+  let storageReads = 0;
   globalThis.chrome = {
     runtime: { id: "test", onConnect, onMessage, getManifest: () => ({ version: "test" }) },
     storage: { local: { get: async () => {
+      if (failFirstRead && storageReads++ === 0) throw new Error("temporary storage failure");
       const snapshot = { ...prefs };
       await Promise.resolve();
       duringLoad?.(onChanged);
@@ -277,5 +279,21 @@ await check("out-of-order AI results re-review changed context without hiding th
   jobs[2].resolve({ classification: "primary" });
   await h.tick();
   assert(h.snapshot().rows.some(row => row.primary.handle === "@c"));
+});
+await check("failed startup preferences recover fully before capture or AI resumes", async () => {
+  let classifications = 0;
+  const h = await harness({ failFirstRead: true, ai: false,
+    initial: { [STORAGE_KEYS.hideGreetings]: false },
+    classify: async () => { classifications++; return null; } });
+  await h.add("@a", "سلام استاد");
+  assert.equal(h.snapshot().rows.length, 0, "storage failure pauses admission");
+  await h.setting(STORAGE_KEYS.enabled, true);
+  await h.tick();
+  assert.equal(h.snapshot().rows.length, 1, "saved greeting preference recovered");
+  await h.add("@b", "حکم نماز چیست؟");
+  await h.add("@c", "نماز چه حکمی دارد؟");
+  assert.equal(classifications, 0, "saved AI-off preference recovered before resuming");
+  await h.tick(1500);
+  assert.equal(h.messages.filter(m => m.type === "HEALTH").at(-1).settingsError, false);
 });
 console.log(`session integration tests: ${passed} passed`);

@@ -336,6 +336,8 @@ export function buildViewRows(records, decisions, config) {
 
   for (let i = 0; i < rows.length; i += 1) {
     rows[i].index = i + 1;
+    // Question numbering is always Persian in the Dari panel. The optional
+    // digit preference applies to repeat-count labels only.
     rows[i].indexLabel = digits(i + 1, true);
   }
 

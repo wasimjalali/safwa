@@ -70,7 +70,7 @@ For the Worker, use the installed Wrangler CLI from `deploy/cloudflare` and vali
 - Fixed uncertain duplicates being folded before confirmation.
 - Fixed duplicate-count inflation when identical comments were revisited or remounted.
 - Fixed stale AI decisions, replacement-review scheduling and old review jobs surviving reset.
-- Fixed saved-setting startup races and made master-off stop capture and AI work.
+- Fixed saved-setting startup races and full recovery after temporary storage failures. Master-off stops capture and AI work.
 - Fixed stale panel bindings and partial snapshots; published lists update atomically.
 - Fixed inactive native controls staying available after removal or remount.
 - Fixed Persian/Arabic continuation cues and honorific matching, plus question-slot accounting after a duplicate first question.

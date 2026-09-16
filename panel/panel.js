@@ -54,7 +54,8 @@ document.getElementById("status").setAttribute("aria-live", "polite");
 masterEl.setAttribute("aria-label", L.filterLabel);
 reset.disabled = true;
 
-function showFeedback(text, error = false) {
+function showFeedback(text, error = false, source = "") {
+  feedback.dataset.source = source;
   feedback.textContent = text;
   feedback.hidden = !text;
   feedback.classList.toggle("feedback--error", error);
@@ -130,7 +131,7 @@ async function init() {
       bindingGeneration += 1;
       detach();
     }
-    if (info.status === "complete") bindTab().catch(() => scheduleRebind());
+    if (info.status === "complete" && (id === tabId || !port)) bindTab().catch(() => scheduleRebind());
   });
   chrome.windows?.onFocusChanged?.addListener(() => bindTab());
   setInterval(() => {
@@ -341,8 +342,9 @@ function onPortMessage(message) {
       connected = boundTab && !snapshotModel;
       reset.disabled = !connected || !!pendingReset;
       lastHealth = { observer: message.observer ?? "ok", wsState: message.wsState ?? "off" };
-      if (message.settingsError) showFeedback(L.settingsFailed, true);
-      else if (message.llmUnavailable) showFeedback(L.llmUnavailable, true);
+      if (message.settingsError) showFeedback(L.settingsFailed, true, "health");
+      else if (message.llmUnavailable) showFeedback(L.llmUnavailable, true, "health");
+      else if (feedback.dataset.source === "health") showFeedback("");
       enabled = message.enabled !== false;
       masterEl.checked = enabled;
       paintStatus();
@@ -397,6 +399,9 @@ function render() {
     historyStartId = lastRowIds[0];
   }
   const pageSize = CONFIG.PANEL.maxMountedRows;
+  if (historyStartId !== null && !model.has(historyStartId)) {
+    historyStartId = lastRowIds.find((id) => model.has(id)) ?? null;
+  }
   const savedStart = rows.findIndex((row) => row.rowId === historyStartId);
   const start = savedStart >= 0 ? savedStart : Math.max(0, rows.length - pageSize);
   if (savedStart < 0) historyStartId = null;
@@ -693,7 +698,7 @@ function requestFeature(row, button) {
   pendingFeature.set(requestId, {
     resolve: (result) => {
       if (result.outcome === "refused") {
-        button.disabled = !row.feature.available || !connected || !enabled;
+        button.disabled = !model.get(row.rowId)?.feature.available || !connected || !enabled;
         showFeedback(L.featureFindNative, true);
         button.title = L.featureFindNative;
         button.setAttribute("aria-label", L[row.feature.labelKey] ?? L.featureShow);
