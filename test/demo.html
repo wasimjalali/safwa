@@ -9,11 +9,11 @@
     <!-- Real badge styles from the extension, so this looks exactly like live. -->
     <link rel="stylesheet" href="../styles.css" />
     <style>
-      /* Vazirmatn for the harness itself (styles.css already loads it for badges). */
+      /* Noto Naskh Arabic for the harness itself (styles.css already loads it for badges). */
       @font-face {
-        font-family: "Vazirmatn";
-        src: url("../fonts/Vazirmatn-Variable.woff2") format("woff2");
-        font-weight: 100 900;
+        font-family: "Noto Naskh Arabic";
+        src: url("../fonts/NotoNaskhArabic-Variable.ttf") format("truetype");
+        font-weight: 400 700;
         font-display: swap;
       }
 
@@ -69,7 +69,7 @@
         flex: 1;
         min-width: 0;
         margin: 0;
-        font-family: "Vazirmatn", Tahoma, sans-serif;
+        font-family: "Noto Naskh Arabic", serif;
         font-size: 17px;
         font-weight: 700;
         line-height: 1;
@@ -182,7 +182,7 @@
       /* Dari is right-to-left. */
       .demo-body { min-width: 0; direction: rtl; text-align: right; flex: 1; }
       .demo-author {
-        font-family: "Vazirmatn", Tahoma, sans-serif;
+        font-family: "Noto Naskh Arabic", serif;
         font-weight: 750; font-size: 15px; margin-inline-end: 8px;
         color: var(--studio-ink);
       }
@@ -190,7 +190,7 @@
       .demo-text {
         margin-top: 3px;
         direction: rtl;
-        font-family: "Vazirmatn", "IRANSans", "Tahoma", sans-serif;
+        font-family: "Noto Naskh Arabic", serif;
         font-size: 17px;
         font-weight: 450;
         line-height: 1.9;
@@ -216,7 +216,7 @@
         box-shadow: 0 0 0 3px rgba(14, 107, 81, 0.12);
       }
       .sandbox-form input[dir="auto"] {
-        font-family: "Vazirmatn", Tahoma, sans-serif;
+        font-family: "Noto Naskh Arabic", serif;
         font-size: 15px;
       }
       .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
@@ -237,7 +237,7 @@
         content: ""; flex: 1; height: 1px;
         background: var(--line);
       }
-      footer.signoff .ar { font-family: "Vazirmatn", Tahoma, sans-serif; font-weight: 700; color: var(--emerald); }
+      footer.signoff .ar { font-family: "Noto Naskh Arabic", serif; font-weight: 700; color: var(--emerald); }
 
       @media (prefers-reduced-motion: reduce) {
         .demo-comment, .demo-group { animation: none; }

@@ -11,6 +11,7 @@ A Manifest V3 Chrome extension that cleans a StreamYard live Q&A comment feed in
 - All matching happens on a folded `matchKey`: Arabic↔Persian letters unified (`ي→ی`, `ك→ک`, alef/hamza forms), harakat + tatweel + ZWNJ stripped, Persian/Arabic-Indic digits folded to ASCII, leading honorifics removed. This lives in `normalize.js`. Do not match on raw text.
 - Dari word lists and UI labels are user-editable in `config.js` (`LABELS`, `HONORIFICS_TO_STRIP`, `CONNECTOR_WORDS`). Honorifics must be written in folded Persian (`ک`/`ی`), because stripping runs after folding.
 - UI is RTL; visible strings come from `CONFIG.LABELS`, never hard-coded.
+- Noto Naskh Arabic is the single font across the Dari UI, including comments and controls. Use the shared `--font-ui` token in the sidebar and bundle its font/license; do not reintroduce older font families.
 - Dedup is cross-platform (same text from any platform collapses). The one-question-per-person rule is per `platform::handle` and is NOT linked across platforms.
 
 ## Non-negotiable invariants

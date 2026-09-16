@@ -1,13 +1,13 @@
 /*
  * popup.css - Ṣafwa. Two rooms: live control, then teacher settings.
- * Hairlines are the only separation device. Vazirmatn for Dari.
+ * Hairlines are the only separation device. Noto Naskh Arabic for Dari.
  * Useful Design tokens. Green/gray on every switch (on/off status).
  */
 
 @font-face {
-  font-family: "Vazirmatn";
-  src: url("../fonts/Vazirmatn-Variable.woff2") format("woff2");
-  font-weight: 100 900;
+  font-family: "Noto Naskh Arabic";
+  src: url("../fonts/NotoNaskhArabic-Variable.ttf") format("truetype");
+  font-weight: 400 700;
   font-display: swap;
 }
 
@@ -59,7 +59,7 @@ body {
 }
 
 body {
-  font-family: "Vazirmatn", system-ui, Tahoma, sans-serif;
+  font-family: "Noto Naskh Arabic", serif;
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
 }

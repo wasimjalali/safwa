@@ -70,7 +70,7 @@ StreamYard tab (top frame)                      Extension surfaces
 | `src/panel-model.js` | pure ESM | **new** | Projects decisions + source records into serializable `ViewRow`s (Section 5). Node-tested against every `test/mock-comments.js` stream. |
 | `src/protocol.js` | pure ESM | **new** | Message type constants + envelope validation for port/runtime messages. Shared by session, sw, panel. |
 | `src/sw.js` | extension SW, module | **new** | ADR-4 scope only. |
-| `panel/panel.html` / `panel.js` / `panel.css` | extension document | **new** | Sidebar shell (static failure text baked into the HTML), renderer, settings view, feature-request initiation. `panel.js` imports `config.js` (LABELS), `protocol.js`. RTL, `lang="fa-AF"`, bundled Vazirmatn. |
+| `panel/panel.html` / `panel.js` / `panel.css` | extension document | **new** | Sidebar shell (static failure text baked into the HTML), renderer, settings view, feature-request initiation. `panel.js` imports `config.js` (LABELS), `protocol.js`. RTL, `lang="fa-AF"`, bundled Noto Naskh Arabic. |
 | `src/config.js` | shared config | modified | Adds: `PANEL_MODE`, `WS_MODE`, `WS_ENDPOINTS`, `WS_LIMITS`, `FEATURE_PROXY`, `PANEL` budgets, new `SELECTORS` entries, new `LABELS` (Section 11). |
 | `src/dom.js` | ISOLATED ESM | modified | Adds avatar extraction (`profileAvatar`), show-button resolution + final validation + click. Still the only file that touches StreamYard HTML. |
 | `src/normalize.js`, `src/dedup.js`, `src/grouping.js`, `src/state.js` | pure ESM | unchanged | Matching core. One required hygiene change: v2 passes **plain copies without `el`/`cardEl`** into `processComment` (the core stores comment objects; DOM refs would leak detached nodes). |
@@ -308,7 +308,7 @@ Every source row (main rows, expanded duplicate members, folded items) shows, RT
 - **Avatar:** prefer validated socket `avatarLarge`, then `avatarSmall`, then the DOM `img[class*="Avatar__Image"]` src; a failed image advances through remaining candidates once, then a bundled neutral avatar/initials in the same fixed space. `referrerpolicy="no-referrer"`, async decoding, HTTPS-only, no credentialed URLs, avatar URLs never logged. Missing images never block admission.
 - **Duplicates** fold into a representative with the gold `{n} بار پرسیده شد` count; the count expands its members (each with own author + avatar). **Joined** questions show fragments together in original order with the `ادامه سوال قبلی` badge. **Second questions** show the `سوال دوم این شخص` badge (dimmed presentation, still readable). **Ambiguous** cases (pending LLM) stay fully readable with `شاید تکراری باشد`. Confirmed folds remain reachable in one compact `نظرهای جمع‌شده` disclosure — no raw record is ever unreachable (the live-tested same-person LLM mis-hide must stay recoverable).
 - Append chronologically; auto-follow only within 48 px of the end; upward scroll pins the reading anchor and shows the `سوال‌های تازه` control. Regrouping, image loads, and count updates never move the text being read. Digits per `USE_PERSIAN_DIGITS_IN_UI`; visible keyboard focus; respect reduced motion; widths 360–480 px.
-- Brand: canvas `#f7f3ea`, text `#14221c`, primary `#0e6b51`, emerald `#0a3d32`, gold `#d4b36a`, secondary `#4a534e`, bundled Vazirmatn (`panel/panel.css` only).
+- Brand: canvas `#f7f3ea`, text `#14221c`, primary `#0e6b51`, emerald `#0a3d32`, gold `#d4b36a`, secondary `#4a534e`, bundled Noto Naskh Arabic (`panel/panel.css` only).
 
 ### 6.2 States
 
@@ -641,7 +641,7 @@ Append to invariant #2 (selector isolation):
 
 1. **Palette: Useful Design System supersedes the §6.1 brand tokens.** The owner chose the
    Useful monochrome system (canvas `#f8f8f8`, white surfaces, gray ink scale, hairline
-   borders, ink accent; status hues only on real state). Persian keeps bundled Vazirmatn.
+   borders, ink accent; status hues only on real state). Persian keeps bundled Noto Naskh Arabic.
    The single intentional color exception is the **source-platform logo** on the avatar
    (YouTube/Facebook/Instagram brand marks, mirroring StreamYard), replacing the platform
    text chip.
