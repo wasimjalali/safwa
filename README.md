@@ -61,7 +61,7 @@ npm run build:manifest
 
 This is a dependency-free JavaScript project. TypeScript and lint are not configured. Tests cover the matching core, recorded WebSocket fixtures, admission, protocol, native-click refusals, rendering, session lifecycle, asynchronous AI races and Worker validation. The package version is the manifest builder's source of truth.
 
-A store ZIP contains only `manifest.json`, the sidebar, required runtime modules, icons and the bundled font/license. Never include source captures, test fixtures, backend files, mockups, older ZIPs or local screenshots. The production package must exclude `ws-main.js`, `ws-bridge.js`, `content-legacy.js` and `ui.js`.
+A store ZIP contains only `manifest.json`, the sidebar, required runtime modules, icons and the bundled fonts/licenses. Never include source captures, test fixtures, backend files, mockups, older ZIPs or local screenshots. The production package must exclude `ws-main.js`, `ws-bridge.js`, `content-legacy.js` and `ui.js`.
 
 For the Worker, use the installed Wrangler CLI from `deploy/cloudflare` and validate with `wrangler deploy --dry-run`. Its `CLASSIFY_LIMITER` binding allows 120 classification requests per minute per IP at each Cloudflare location. This is abuse mitigation, not authentication or a global spending cap. Shared-network users share that limit; excess requests degrade to local filtering. No paid tier or new database is required by these source changes.
 
@@ -79,3 +79,7 @@ For the Worker, use the installed Wrangler CLI from `deploy/cloudflare` and vali
 - Hardened the AI endpoint against arbitrary prompts, oversized input, unrestricted browser origins and bursts of requests.
 
 Verification includes controlled session tests, recorded fixtures, an actual unpacked-extension check with synthetic StreamYard comments and real-browser panel checks at 360px, 390px and 1440px with long text, keyboard focus, settings failures, reset failures and reading-position checks. These are not a live multi-platform broadcast rehearsal. A logged-in StreamYard studio was unavailable during this audit; broadcast output, current native selectors and comment coverage while scrolling must still be checked in a disposable rehearsal before public launch.
+
+## 2.0.6 settings polish
+
+Settings use the bundled Noto Naskh Arabic font for Persian text. Help icons use 20px circles within 40px click targets. The font and its SIL Open Font License must be included in the store ZIP. Filtering behavior is unchanged.

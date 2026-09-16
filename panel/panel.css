@@ -2,7 +2,7 @@
  * panel.css - the Ṣafwa sidebar, built on the Useful Design System tokens
  * (useful-design skill): monochrome, hairline separations, one black accent,
  * status hues only for genuine state. Persian text uses the bundled
- * Vazirmatn; Latin/data falls through to Geist when available.
+ * Vazirmatn, with Noto Naskh Arabic for settings; Latin/data uses Geist.
  */
 
 @font-face {
@@ -11,6 +11,13 @@
     url("../fonts/Vazirmatn-Variable.woff2") format("woff2"),
     url("chrome-extension://__MSG_@@extension_id__/fonts/Vazirmatn-Variable.woff2") format("woff2");
   font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Naskh Arabic";
+  src: url("../fonts/NotoNaskhArabic-Variable.ttf") format("truetype");
+  font-weight: 400 700;
   font-display: swap;
 }
 
@@ -54,6 +61,7 @@
   --shadow-card: 0 1px 0 rgb(23 23 23 / 0.03), 0 18px 40px -24px rgb(23 23 23 / 0.18);
 
   --font-sans: "Geist", "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+  --font-reading: "Noto Naskh Arabic", "Vazirmatn", serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
@@ -364,7 +372,7 @@ details.count[open] summary .tri { transform: rotate(-90deg); }
 
 /* -------------------------------------------------------------- settings */
 
-.settings { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 24px; display: flex; flex-direction: column; gap: 0; }
+.settings { font-family: var(--font-reading); flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 24px; display: flex; flex-direction: column; gap: 0; }
 .settings__head {
   display: flex;
   align-items: center;
@@ -383,14 +391,22 @@ details.count[open] summary .tri { transform: rotate(-90deg); }
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
-.toggle-row__label { flex: 1; font-size: 14px; color: var(--ink); }
+.toggle-row__label { flex: 1; font-size: 16px; line-height: 1.8; color: var(--ink); }
 .setting-help {
-  display: grid; place-items: center; flex: none; width: 40px; height: 40px;
-  border: 1px solid var(--ink-muted); border-radius: 50%; background: transparent;
-  color: var(--ink-muted); font: inherit; cursor: pointer;
+  position: relative; display: grid; place-items: center; flex: none; width: 40px; height: 40px;
+  border: 0; padding: 0; background: transparent;
+  color: var(--ink-muted); font: 14px/1 "Vazirmatn", sans-serif; cursor: pointer;
+  isolation: isolate;
 }
-.setting-help:hover, .setting-help[aria-expanded="true"] { background: var(--sunken); color: var(--ink); }
-.setting-explanation { padding: 4px 0 12px; color: var(--ink-muted); font-size: 13px; line-height: 1.9; }
+.setting-help::before {
+  content: ""; position: absolute; inset: 10px; z-index: -1;
+  border: 1px solid currentColor; border-radius: 50%;
+}
+.setting-help:hover, .setting-help[aria-expanded="true"] { color: var(--ink); }
+.setting-help:hover::before, .setting-help[aria-expanded="true"]::before { background: var(--sunken); }
+.setting-help:focus-visible { outline: none; }
+.setting-help:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 3px; }
+.setting-explanation { padding: 4px 0 12px; color: var(--ink-muted); font-size: 15px; line-height: 1.9; }
 .setting-explanation p { margin: 8px 0 0; }
 .setting-explanation strong { color: var(--ink); }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 3px; }
