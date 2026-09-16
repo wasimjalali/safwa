@@ -1,18 +1,9 @@
 /*
  * panel.css - the Ṣafwa sidebar, built on the Useful Design System tokens
  * (useful-design skill): monochrome, hairline separations, one black accent,
- * status hues only for genuine state. Persian text uses the bundled
- * Vazirmatn, with Noto Naskh Arabic for settings; Latin/data uses Geist.
+ * status hues only for genuine state. The entire Dari UI uses the bundled
+ * Noto Naskh Arabic font, including comments, controls and metadata.
  */
-
-@font-face {
-  font-family: "Vazirmatn";
-  src:
-    url("../fonts/Vazirmatn-Variable.woff2") format("woff2"),
-    url("chrome-extension://__MSG_@@extension_id__/fonts/Vazirmatn-Variable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-display: swap;
-}
 
 @font-face {
   font-family: "Noto Naskh Arabic";
@@ -60,9 +51,7 @@
   --shadow-sm: 0 1px 2px rgb(23 23 23 / 0.04);
   --shadow-card: 0 1px 0 rgb(23 23 23 / 0.03), 0 18px 40px -24px rgb(23 23 23 / 0.18);
 
-  --font-sans: "Geist", "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
-  --font-reading: "Noto Naskh Arabic", "Vazirmatn", serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-ui: "Noto Naskh Arabic", serif;
 }
 
 * { box-sizing: border-box; }
@@ -73,10 +62,12 @@ html, body {
   padding: 0;
   background: var(--canvas);
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
 }
+
+button, input, select, textarea { font-family: inherit; }
 
 .tnum { font-variant-numeric: tabular-nums; }
 
@@ -372,7 +363,7 @@ details.count[open] summary .tri { transform: rotate(-90deg); }
 
 /* -------------------------------------------------------------- settings */
 
-.settings { font-family: var(--font-reading); flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 24px; display: flex; flex-direction: column; gap: 0; }
+.settings { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 24px; display: flex; flex-direction: column; gap: 0; }
 .settings__head {
   display: flex;
   align-items: center;
@@ -395,7 +386,7 @@ details.count[open] summary .tri { transform: rotate(-90deg); }
 .setting-help {
   position: relative; display: grid; place-items: center; flex: none; width: 40px; height: 40px;
   border: 0; padding: 0; background: transparent;
-  color: var(--ink-muted); font: 14px/1 "Vazirmatn", sans-serif; cursor: pointer;
+  color: var(--ink-muted); font: 14px/1 var(--font-ui); cursor: pointer;
   isolation: isolate;
 }
 .setting-help::before {

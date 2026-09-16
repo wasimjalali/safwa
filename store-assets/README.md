@@ -32,8 +32,8 @@ What is still missing, and exactly what to do:
 3. Report the status of every required field on the item Status tab
 4. DO NOT click "Submit for review". Stop and report when everything green except submission.
 
-## 2.0.6 release package
+## 2.0.7 release package
 
-Use `Safwa-chrome-webstore-v2.0.6.zip` from the repository root after rebuilding. It includes the sidebar version footer, smaller toggle help icons, Noto Naskh Arabic settings text and reset feedback. The installed version comes from the manifest. Old ZIPs are historical artifacts.
+Use `Safwa-chrome-webstore-v2.0.7.zip` from the repository root after rebuilding. It includes the sidebar version footer, smaller toggle help icons, consistent Noto Naskh Arabic text throughout the sidebar and reset feedback. The installed version comes from the manifest. Old ZIPs are historical artifacts.
 
 The runtime audit and its verification limits are recorded in the root README. Update store screenshots to the current sidebar before submitting. Instagram and Facebook Group comments must not be advertised as supported because StreamYard does not receive them.

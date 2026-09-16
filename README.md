@@ -83,3 +83,7 @@ Verification includes controlled session tests, recorded fixtures, an actual unp
 ## 2.0.6 settings polish
 
 Settings use the bundled Noto Naskh Arabic font for Persian text. Help icons use 20px circles within 40px click targets. The font and its SIL Open Font License must be included in the store ZIP. Filtering behavior is unchanged.
+
+## 2.0.7 consistent Dari typography
+
+Noto Naskh Arabic is the single bundled UI font. Comments, names, badges, counters, headings, settings, buttons, status messages and the version footer all use it. Legacy previews and the self-contained teacher brief use the same font. The old font assets have been removed; store ZIPs include only the Noto font and its license.

@@ -12,17 +12,17 @@
  * gated on html:not(.safwa-disabled), so turning the filter off restores the
  * native feed exactly (no display/opacity overrides are left behind).
  *
- * Font: Vazirmatn (bundled, OFL). The first src resolves inside the extension
+ * Font: Noto Naskh Arabic (bundled, OFL). The first src resolves inside the extension
  * (Chrome substitutes __MSG_@@extension_id__ in content-script CSS); the
  * second is a relative fallback so the demo harness gets the same font.
  */
 
 @font-face {
-  font-family: "Vazirmatn";
+  font-family: "Noto Naskh Arabic";
   src:
-    url("chrome-extension://__MSG_@@extension_id__/fonts/Vazirmatn-Variable.woff2") format("woff2"),
-    url("fonts/Vazirmatn-Variable.woff2") format("woff2");
-  font-weight: 100 900;
+    url("chrome-extension://__MSG_@@extension_id__/fonts/NotoNaskhArabic-Variable.ttf") format("truetype"),
+    url("fonts/NotoNaskhArabic-Variable.ttf") format("truetype");
+  font-weight: 400 700;
   font-display: swap;
 }
 
@@ -46,7 +46,7 @@
   margin-block: 2px;
   padding: 2px 10px;
   border-radius: 4px;
-  font-family: "Vazirmatn", "IRANSans", "Segoe UI", Tahoma, sans-serif;
+  font-family: "Noto Naskh Arabic", serif;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.7;
