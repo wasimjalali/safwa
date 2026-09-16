@@ -52,6 +52,7 @@ const SYSTEM_PROMPTS = new Set([ROOM_SYSTEM_PROMPT, SAME_PERSON_SYSTEM_PROMPT, C
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin");
+  if (!origin && (request.method === "POST" || request.method === "OPTIONS")) return null;
   if (origin && !/^https:\/\/([a-z0-9-]+\.)*streamyard\.com$/i.test(origin)) return null;
   return {
     ...(origin ? { "Access-Control-Allow-Origin": origin } : {}),

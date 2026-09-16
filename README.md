@@ -74,8 +74,8 @@ For the Worker, use the installed Wrangler CLI from `deploy/cloudflare` and vali
 - Fixed stale panel bindings and partial snapshots; published lists update atomically.
 - Fixed inactive native controls staying available after removal or remount.
 - Fixed Persian/Arabic continuation cues and honorific matching, plus question-slot accounting after a duplicate first question.
-- Fixed scrolling ownership, preserved reading position and removed the 1,200-question history dead end.
+- Fixed scrolling ownership, preserved reading position and replaced the 1,200-question history dead end with bounded 200-question pages. All captured history remains reachable.
 - Added five settings explanations, visible errors, reset acknowledgement and a manifest-backed version footer.
 - Hardened the AI endpoint against arbitrary prompts, oversized input, unrestricted browser origins and bursts of requests.
 
-Verification includes controlled session tests, recorded fixtures and real-browser panel checks at 360px, 390px and 1440px with long text, keyboard focus, settings failures, reset failures and reading-position checks. These are not a live multi-platform broadcast rehearsal. A logged-in StreamYard studio was unavailable during this audit; broadcast output, current native selectors and comment coverage while scrolling must still be checked in a disposable rehearsal before public launch.
+Verification includes controlled session tests, recorded fixtures, an actual unpacked-extension check with synthetic StreamYard comments and real-browser panel checks at 360px, 390px and 1440px with long text, keyboard focus, settings failures, reset failures and reading-position checks. These are not a live multi-platform broadcast rehearsal. A logged-in StreamYard studio was unavailable during this audit; broadcast output, current native selectors and comment coverage while scrolling must still be checked in a disposable rehearsal before public launch.

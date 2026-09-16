@@ -193,7 +193,9 @@ export const CONFIG = {
     snapshotChunkRows: 128,
     snapshotChunkBytes: 262144,
     patchBatchesPerSec: 20,
-    maxMountedRows: 150,
+    // Normal teacher sessions contain 150 to 200 questions. Keep one session
+    // visible per page, with older/newer navigation for larger feeds.
+    maxMountedRows: 200,
     autoFollowPx: 48,
     healthIntervalMs: 2000,
     reopenRecoveryMs: 2000,
@@ -293,6 +295,7 @@ export const CONFIG = {
     resetSession: "شروع تازه برای این برنامه",
     resetDone: "حافظهٔ این برنامه پاک شد.",
     resetting: "در حال پاک کردن حافظه…",
+    resetUnconfirmed: "اتصال قطع شد. پاک شدن حافظه تأیید نشد؛ دوباره بررسی کنید.",
     resetFailed: "حافظه پاک نشد. اتصال به استودیو را بررسی کنید و دوباره بزنید.",
     settingsFailed: "تنظیم ذخیره نشد. دوباره تلاش کنید.",
     llmUnavailable: "بررسی هوشمند موقتاً در دسترس نیست. سوال‌های نامطمئن پنهان نمی‌شوند.",
@@ -318,6 +321,7 @@ export const CONFIG = {
     panelSimpleMode: "حالت ساده",
     panelNewItems: "سوال‌های تازه",
     panelFolded: "سوال‌های جمع‌شده",
+    panelNewer: "سوال‌های تازه‌تر",
     panelOlder: "سوال‌های قدیمی‌تر",
     panelSettingsBack: "بازگشت",
     platformUnknown: "نامشخص",

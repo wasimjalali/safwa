@@ -61,7 +61,6 @@ export function startSession(deps) {
   let health = healthMod.createHealth(config);
   let wsState = config.WS_MODE === "off" ? "off" : "starting";
   let bridgeHandshakeSeen = false;
-  let rebuildEpoch = 0;
   const lastQueueDroppedByKey = new Map();
   let masterEnabled = true;
   let lastHref = location.origin + location.pathname;
@@ -235,7 +234,7 @@ export function startSession(deps) {
           if (node) pending.add(node);
           continue;
         }
-        for (const added of m.addedNodes ?? []) {
+        for (const added of m.addedNodes) {
           const node = dom.closestCommentNode(added);
           if (node) {
             pending.add(node);
@@ -521,7 +520,6 @@ export function startSession(deps) {
       context: llm.llmContextFromDecision(comment, decision),
       controller: new AbortController(),
       settingsRevision,
-      rebuildEpoch,
     };
     llmJobs.set(sourceId, job);
     llmQueue.push(job);
@@ -556,7 +554,6 @@ export function startSession(deps) {
       documentToken,
       sessionEpoch: job.sessionEpoch,
       settingsRevision: job.settingsRevision,
-      rebuildEpoch: job.rebuildEpoch,
       sourceId,
       contentRevision: admission.getRecord(sourceId)?.admissionSeq ?? 0,
       contentText: comment.displayText,
@@ -607,7 +604,6 @@ export function startSession(deps) {
   /* ----------------------------------------------------- settings rebuild */
 
   function rebuildFromRecords() {
-    rebuildEpoch += 1;
     state = stateMod.createState();
     decisions.clear();
     const ordered = admission.records().slice().sort((a, b) => a.admissionSeq - b.admissionSeq);
@@ -670,7 +666,12 @@ export function startSession(deps) {
     const liveByNode = new Map();
     const claimed = new Set();
     for (const node of container ? dom.collectCommentNodes(container) : []) {
-      const live = dom.extractComment(node);
+      let live;
+      try { live = dom.extractComment(node); }
+      catch {
+        console.warn(`${TAG} native comment could not be read; skipping its display action.`);
+        continue;
+      }
       if (!live) continue;
       liveByNode.set(node, live);
       const fp = fingerprintOf(live);

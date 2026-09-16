@@ -75,3 +75,10 @@ Key rules:
 - Model: `@cf/google/gemma-4-26b-a4b-it` (Gemma 4 26B)
 - Worker: `deploy/cloudflare` (`wrangler deploy`)
 - Endpoint: `LLM_ENDPOINT` in `src/config.js`
+
+## Expected workload
+
+- Two sessions per week, on Tuesday and Thursday afternoons.
+- Around 150 to 200 incoming questions/comments per session, with roughly 150 questions answered.
+- The panel mounts at most 200 question cards per page. Larger sessions retain all captured history through older/newer pages.
+- The AI service limit is 120 requests per minute per IP, not a per-session question limit. Rate-limited or unavailable AI leaves uncertain questions visible.

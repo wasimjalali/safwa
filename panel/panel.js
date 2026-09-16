@@ -31,7 +31,8 @@ let port = null;
 let tabId = null;
 let windowId = null;
 let boundTab = false;
-let windowCount = CONFIG.PANEL.maxMountedRows;
+let historyStartId = null;
+let pageNavigation = false;
 let lastRowIds = [];
 let enabled = true;
 let lastHealth = { observer: "ok", wsState: "off" };
@@ -42,10 +43,7 @@ let bindingGeneration = 0;
 let snapshotModel = null;
 let pendingReset = null;
 let connected = false;
-let lastWindowCount = 0;
 
-app.hidden = false;
-document.getElementById("static-failure").hidden = true;
 document.querySelector(".head__title").textContent = L.panelTitle;
 document.querySelector(".filter__label").textContent = L.filterLabel;
 document.getElementById("reset").textContent = L.resetSession;
@@ -54,7 +52,6 @@ document.getElementById("gear").setAttribute("aria-label", L.settingsHeading);
 document.getElementById("list").removeAttribute("aria-live");
 document.getElementById("status").setAttribute("aria-live", "polite");
 masterEl.setAttribute("aria-label", L.filterLabel);
-versionEl.textContent = `${L.versionLabel} ${chrome.runtime.getManifest().version}`;
 reset.disabled = true;
 
 function showFeedback(text, error = false) {
@@ -97,17 +94,20 @@ function wireUi() {
     settings.hidden = !opening;
     list.hidden = opening || !enabled;
     gear.setAttribute("aria-expanded", String(opening));
-    newItems.hidden = opening || !enabled || nearEnd();
+    newItems.hidden = opening || !enabled || (historyStartId === null && nearEnd());
     if (!opening) list.scrollTop = savedScrollTop;
   });
   gear.setAttribute("aria-expanded", "false");
   reset.addEventListener("click", requestReset);
   newItems.addEventListener("click", () => {
+    historyStartId = null;
+    pageNavigation = true;
+    render();
     list.scrollTo({ top: list.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     newItems.hidden = true;
   });
   list.addEventListener("scroll", () => {
-    if (nearEnd()) newItems.hidden = true;
+    if (historyStartId === null && nearEnd()) newItems.hidden = true;
     list.classList.add("is-scrolling");
     clearTimeout(list.__scrollIdle);
     list.__scrollIdle = setTimeout(() => list.classList.remove("is-scrolling"), 700);
@@ -115,6 +115,9 @@ function wireUi() {
 }
 
 async function init() {
+  versionEl.textContent = `${L.versionLabel} ${chrome.runtime.getManifest().version}`;
+  app.hidden = false;
+  document.getElementById("static-failure").hidden = true;
   setStatus(L.panelLoading);
   renderSettings();
   wireUi(); // UI reacts before any chrome API await
@@ -139,7 +142,7 @@ async function init() {
     try {
       port.postMessage(makeEnvelope(MESSAGE_TYPES.RESYNC, envelopeFields()));
     } catch {
-      detach();
+      detach({ connectionLost: true });
       scheduleRebind();
     }
     lastHealthAt = Date.now();
@@ -184,7 +187,7 @@ function scheduleRebind() {
   }, delay);
 }
 
-function detach() {
+function detach({ connectionLost = false } = {}) {
   const oldPort = port;
   port = null;
   connected = false;
@@ -194,13 +197,20 @@ function detach() {
   bound.revision = 0;
   snapshotModel = null;
   pendingFeature.clear();
-  if (pendingReset) finishReset(false);
+  if (pendingReset) {
+    clearTimeout(pendingReset.timer);
+    pendingReset = null;
+    reset.textContent = L.resetSession;
+    reset.removeAttribute("aria-busy");
+    showFeedback(connectionLost ? L.resetUnconfirmed : "", connectionLost);
+  }
   reset.disabled = true;
   model.clear();
   rowEls.clear();
   folded = [];
   lastRowIds = [];
-  windowCount = CONFIG.PANEL.maxMountedRows;
+  historyStartId = null;
+  pageNavigation = false;
   list.replaceChildren();
   newItems.hidden = true;
   oldPort?.disconnect();
@@ -245,7 +255,7 @@ async function bindTab() {
   nextPort.onDisconnect.addListener(() => {
     void chrome.runtime.lastError;
     if (port !== nextPort) return;
-    detach();
+    detach({ connectionLost: true });
     setStatus(L.panelDisconnected);
     scheduleRebind();
   });
@@ -380,42 +390,41 @@ function paintEnabledState() {
 
 function render() {
   const rows = [...model.values()].sort((a, b) => a.index - b.index);
-  // Keep the oldest mounted row while the teacher is reading above the end.
-  if (!nearEnd() && lastRowIds.length) {
-    const start = rows.findIndex((row) => row.rowId === lastRowIds[0]);
-    if (start >= 0) windowCount = Math.max(windowCount, rows.length - start);
-  }
-  const visible = rows.slice(Math.max(0, rows.length - windowCount));
-  const newIds = visible.map((r) => r.rowId);
-  const arrivedNew = lastRowIds.length > 0 && newIds.some((id) => !lastRowIds.includes(id));
   const wasNearEnd = nearEnd();
+  // Freeze a bounded page while reading. New arrivals remain reachable through
+  // the latest button without growing the mounted history indefinitely.
+  if (!pageNavigation && historyStartId === null && !wasNearEnd && lastRowIds.length) {
+    historyStartId = lastRowIds[0];
+  }
+  const pageSize = CONFIG.PANEL.maxMountedRows;
+  const savedStart = rows.findIndex((row) => row.rowId === historyStartId);
+  const start = savedStart >= 0 ? savedStart : Math.max(0, rows.length - pageSize);
+  if (savedStart < 0) historyStartId = null;
+  const visible = rows.slice(start, start + pageSize);
+  const end = start + visible.length;
+  const newIds = visible.map((r) => r.rowId);
   const prevScroll = list.scrollTop;
-  const prevHeight = list.scrollHeight;
-  const grewWindow = windowCount !== lastWindowCount;
   const readingAnchor = [...list.children].find((el) => el.dataset.rowId &&
     el.getBoundingClientRect().bottom > list.getBoundingClientRect().top);
   const anchorTop = readingAnchor?.getBoundingClientRect().top;
 
   if (rows.length === 0 && folded.length === 0) {
     list.replaceChildren(emptyNode(L.panelWaiting));
+    lastRowIds = [];
+    historyStartId = null;
+    pageNavigation = false;
+    newItems.hidden = true;
     return;
   }
 
   const desired = [];
   const frag = { append: (el) => desired.push(el) };
-  if (rows.length > windowCount) {
-    const older = document.createElement("button");
-    older.type = "button";
-    older.className = "new-items";
-    older.style.position = "static";
-    older.style.transform = "none";
-    older.style.margin = "8px auto";
-    older.textContent = `${L.panelOlder} (${rows.length - windowCount}+)`;
-    older.addEventListener("click", () => {
-      windowCount += CONFIG.PANEL.maxMountedRows;
+  if (start > 0) {
+    frag.append(historyButton(`${L.panelOlder} (${start})`, () => {
+      historyStartId = rows[Math.max(0, start - pageSize)].rowId;
+      pageNavigation = true;
       render();
-    });
-    frag.append(older);
+    }, "older"));
   }
 
   for (const row of visible) {
@@ -426,7 +435,7 @@ function render() {
       continue;
     }
     const countOpen = !!(existing && existing.querySelector?.("details.count")?.open);
-    const el = renderRow(row, { countOpen });
+    const el = renderRow(row, { countOpen, memberOffset: Number(existing?.querySelector(".count__list")?.dataset.offset || 0) });
     el.querySelector(".air").disabled ||= !connected || !enabled;
     el.__key = key;
     rowEls.set(row.rowId, el);
@@ -437,6 +446,15 @@ function render() {
     if (!model.has(id) || !visibleIds.has(id)) rowEls.delete(id);
   }
 
+  if (end < rows.length) {
+    frag.append(historyButton(`${L.panelNewer} (${rows.length - end})`, () => {
+      const nextStart = Math.min(start + pageSize, Math.max(0, rows.length - pageSize));
+      historyStartId = nextStart + pageSize >= rows.length ? null : rows[nextStart].rowId;
+      pageNavigation = true;
+      render();
+    }, "newer"));
+  }
+
   if (folded.length > 0) {
     const details = document.createElement("details");
     details.className = "folded";
@@ -444,13 +462,10 @@ function render() {
     const summary = document.createElement("summary");
     summary.textContent = `${L.panelFolded} (${folded.length})`;
     details.append(summary);
-    for (const item of folded) {
-      const div = document.createElement("div");
-      div.className = "folded__item";
-      div.dir = "auto";
-      div.textContent = `${item.handle} - ${item.displayText}`;
-      details.append(div);
-    }
+    const items = document.createElement("div");
+    items.className = "folded__list";
+    fillPagedItems(items, folded, Number(list.querySelector(".folded__list")?.dataset.offset || 0), "folded__item");
+    details.append(items);
     frag.append(details);
   }
 
@@ -461,20 +476,45 @@ function render() {
   while (list.children.length > desired.length) list.lastElementChild.remove();
   lastRowIds = newIds;
 
-  if (wasNearEnd) {
+  if (pageNavigation) {
+    list.scrollTop = historyStartId === null ? list.scrollHeight : 0;
+  } else if (historyStartId === null && wasNearEnd) {
     list.scrollTop = list.scrollHeight;
   } else if (readingAnchor?.isConnected) {
     list.scrollTop = prevScroll + readingAnchor.getBoundingClientRect().top - anchorTop;
-    if (arrivedNew && settings.hidden && enabled) newItems.hidden = false;
-  } else if (grewWindow) {
-    // "load older" prepends rows: compensate by the added height.
-    list.scrollTop = prevScroll + (list.scrollHeight - prevHeight);
   } else {
-    // Comments append at the bottom; the viewport must not move.
     list.scrollTop = prevScroll;
-    if (arrivedNew) newItems.hidden = false;
   }
-  lastWindowCount = windowCount;
+  pageNavigation = false;
+  newItems.hidden = !settings.hidden || !enabled || (end >= rows.length && nearEnd());
+}
+
+function historyButton(label, onClick, direction) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "new-items history-page";
+  button.dataset.direction = direction;
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function fillPagedItems(container, items, offset, className) {
+  const size = CONFIG.PANEL.maxMountedRows;
+  const start = Math.max(0, Math.min(offset, Math.max(0, items.length - 1)));
+  container.dataset.offset = start;
+  container.replaceChildren();
+  if (start > 0) container.append(historyButton(L.panelOlder,
+    () => fillPagedItems(container, items, Math.max(0, start - size), className), "older"));
+  for (const item of items.slice(start, start + size)) {
+    const div = document.createElement("div");
+    div.className = className;
+    div.dir = "auto";
+    div.textContent = `${item.handle} - ${item.displayText}`;
+    container.append(div);
+  }
+  if (start + size < items.length) container.append(historyButton(L.panelNewer,
+    () => fillPagedItems(container, items, start + size, className), "newer"));
 }
 
 function emptyNode(text) {
@@ -585,14 +625,8 @@ export function renderRow(row, options = {}) {
     details.append(summary);
     const listEl = document.createElement("div");
     listEl.className = "count__list";
-    for (const member of row.members) {
-      if (member.sourceId === row.primary.sourceId) continue;
-      const item = document.createElement("div");
-      item.className = "count__item";
-      item.dir = "auto";
-      item.textContent = `${member.handle} - ${member.displayText}`;
-      listEl.append(item);
-    }
+    fillPagedItems(listEl, row.members.filter((member) => member.sourceId !== row.primary.sourceId),
+      options.memberOffset || 0, "count__item");
     details.append(listEl);
     body.append(details);
   }
@@ -659,7 +693,7 @@ function requestFeature(row, button) {
   pendingFeature.set(requestId, {
     resolve: (result) => {
       if (result.outcome === "refused") {
-        button.disabled = !connected;
+        button.disabled = !row.feature.available || !connected || !enabled;
         showFeedback(L.featureFindNative, true);
         button.title = L.featureFindNative;
         button.setAttribute("aria-label", L[row.feature.labelKey] ?? L.featureShow);
@@ -691,7 +725,7 @@ function requestFeature(row, button) {
         makeEnvelope(MESSAGE_TYPES.ACTION_STATUS, { ...envelopeFields(), requestId })
       );
     } catch {
-      detach();
+      detach({ connectionLost: true });
       scheduleRebind();
     }
     // Keep the entry briefly so a refused ACTION_STATUS can still re-enable.

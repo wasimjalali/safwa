@@ -67,8 +67,21 @@ await check("backend exceptions become a structured failure without internal det
 });
 await check("missing abuse-control bindings fail closed", async () => {
   const res = await worker.fetch(new Request("https://example.test/v1/chat/completions", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(valid),
+    method: "POST", headers: { "Content-Type": "application/json", Origin: "https://streamyard.com" }, body: JSON.stringify(valid),
   }), { AI: env.AI });
   assert.equal(res.status, 503);
+});
+
+await check("inference and preflight require an allowed origin while health stays public", async () => {
+  const before = calls;
+  for (const method of ["POST", "OPTIONS"]) {
+    const res = await worker.fetch(new Request("https://example.test/v1/chat/completions", {
+      method, headers: { "Content-Type": "application/json" },
+      ...(method === "POST" ? { body: JSON.stringify(valid) } : {}),
+    }), env);
+    assert.equal(res.status, 403);
+  }
+  assert.equal((await worker.fetch(new Request("https://example.test/"), env)).status, 200);
+  assert.equal(calls, before);
 });
 console.log(`worker tests: ${passed} passed`);

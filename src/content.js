@@ -21,7 +21,7 @@
   const VERSION = chrome.runtime?.getManifest?.().version ?? "?";
 
 
-  if (!/(^|\.)streamyard\.com$/.test(location.host)) {
+  if (!/(^|\.)streamyard\.com$/.test(location.hostname)) {
     console.warn(`${TAG} not a streamyard.com host (${location.host}); doing nothing.`);
     return;
   }

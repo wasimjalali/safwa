@@ -487,3 +487,5 @@ details.count[open] summary .tri { transform: rotate(-90deg); }
     scroll-behavior: auto !important;
   }
 }
+
+.history-page { position: static; transform: none; margin: 8px auto; }
