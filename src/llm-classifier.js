@@ -9,9 +9,9 @@
  *                  continuation vs duplicate vs extra vs greeting
  *   courtesy     — leftover blessing/thanks: greeting vs primary
  *
- * Regex-certain cases never get here. If the LLM is unreachable, times out, or
- * returns garbage, the caller keeps the regex decision (never hide on a maybe).
- * Live path: Cloudflare Worker in deploy/cloudflare (Gemma 4 26B).
+ * Only exact normalized repeats skip this layer. If the LLM is unreachable,
+ * times out, or returns garbage, the caller keeps the visible local decision.
+ * Live path: Cloudflare Worker in deploy/cloudflare (Gemma 4, then GLM 5.3 Flash).
  */
 
 const TAG = "[Ṣafwa]";
@@ -87,7 +87,11 @@ export async function classifyComment(newComment, recentQuestions, config, conte
   const abort = () => controller.abort();
   if (context.signal?.aborted) return null;
   context.signal?.addEventListener("abort", abort, { once: true });
-  const timeoutId = setTimeout(() => controller.abort(), config.LLM_TIMEOUT_MS);
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, config.LLM_TIMEOUT_MS);
 
   try {
     const res = await fetch(config.LLM_ENDPOINT, {
@@ -114,7 +118,10 @@ export async function classifyComment(newComment, recentQuestions, config, conte
 
     return parsed;
   } catch (err) {
-    if (err.name === "AbortError") {
+    // Reset, master-off and settings changes intentionally cancel requests.
+    // They are not provider timeouts and must not suggest an AI outage.
+    if (context.signal?.aborted) return null;
+    if (timedOut) {
       console.warn(`${TAG} LLM request timed out (${config.LLM_TIMEOUT_MS}ms); falling back to regex.`);
     } else {
       console.warn(`${TAG} LLM request failed; falling back to regex.`, err.message);

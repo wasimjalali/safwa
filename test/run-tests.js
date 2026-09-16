@@ -33,9 +33,12 @@ function test(name, fn) {
   }
 }
 
-function runStream(stream) {
+function runStream(stream, classifications = []) {
   const state = createState();
-  const decisions = stream.map((c) => processComment({ ...c }, state, CONFIG));
+  const decisions = stream.map((c, i) => {
+    const decision = processComment({ ...c }, state, CONFIG);
+    return classifications[i] ? applyLlmOverride(decision, classifications[i], state, CONFIG) : decision;
+  });
   return { state, decisions };
 }
 
@@ -141,17 +144,18 @@ test("KEY: Arabic-keyboard spelling of the same question collapses as an exact d
   assert.equal(state.signatures.size, 1);
 });
 
-test("2) reworded/reordered near-duplicate is caught at default threshold", () => {
-  const { decisions } = runStream(STREAMS.nearDuplicate);
+test("2) reordered near-duplicate waits for semantic confirmation", () => {
+  const { state, decisions } = runStream(STREAMS.nearDuplicate);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "duplicate");
-  assert.equal(decisions[1].kind, "exact");
-  assert.equal(decisions[1].count, 2);
-  assert.equal(decisions[1].needsLlmReview, undefined);
+  assert.equal(decisions[1].kind, "fuzzy");
+  assert.equal(decisions[1].count, 1);
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.equal(applyLlmOverride(decisions[1], { classification: "duplicate", match: 1 }, state, CONFIG).count, 2);
 });
 
-test("3) split question (same handle, in window, with cue) => one merged block", () => {
-  const { state, decisions } = runStream(STREAMS.splitQuestion);
+test("3) AI-confirmed split question becomes one merged block", () => {
+  const { state, decisions } = runStream(STREAMS.splitQuestion, [null, { classification: "continuation" }]);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "continuation");
   assert.equal(decisions[1].needsLlmReview, undefined);
@@ -219,7 +223,7 @@ test("same person, handle typed on two keyboards => second question flagged extr
 group("Continuation cap & greeting pre-filter (new requirements)");
 
 test("continuation is capped: question + ONE continuation kept, a third in-window fragment is blocked", () => {
-  const { decisions } = runStream(STREAMS.cappedContinuation);
+  const { decisions } = runStream(STREAMS.cappedContinuation, [null, { classification: "continuation" }]);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "continuation");
   assert.equal(decisions[1].block.fragmentCount, 2);
@@ -262,15 +266,16 @@ test("a greeting-only comment does not consume the person's one question slot", 
   assert.equal(decisions[1].type, "primary");
 });
 
-test("regex greetings hide by default and stay visible when the teacher turns the toggle off", () => {
+test("short greetings wait for AI and respect the greeting setting after confirmation", () => {
   const hidden = processComment(
     comment("کریم", "youtube", "سلام علیکم", 0),
     createState(),
     CONFIG
   );
   assert.equal(hidden.type, "greeting");
-  assert.equal(hidden.hide, true);
-  assert.equal(hidden.needsLlmReview, undefined);
+  assert.equal(hidden.hide, false);
+  assert.equal(hidden.needsLlmReview, true);
+  assert.equal(applyLlmOverride(hidden, { classification: "greeting" }, createState(), CONFIG).hide, true);
 
   const shown = processComment(
     comment("کریم", "youtube", "سلام علیکم", 0),
@@ -279,12 +284,39 @@ test("regex greetings hide by default and stay visible when the teacher turns th
   );
   assert.equal(shown.type, "greeting");
   assert.equal(shown.hide, false);
+  assert.equal(applyLlmOverride(shown, { classification: "greeting" }, createState(), { ...CONFIG, HIDE_GREETINGS: false }).hide, false);
 });
 
 test("blessing-only comments fold to a greeting", () => {
   assert.equal(normalize("جزاک الله", CONFIG).isGreetingOnly, true);
   assert.equal(normalize("آمین", CONFIG).isGreetingOnly, true);
   assert.equal(normalize("خداحافظ", CONFIG).isGreetingOnly, true);
+});
+
+test("spaced Arabic greeting candidates wait for AI without using a question slot", () => {
+  for (const text of [
+    "السلام علیکم و رحمة الله", "السلام عليكم ورحمة الله", "السلام علیکم و رحمت الله و برکاته",
+    "السَّلَامُ عَلَيْكُمْ وَ رَحْمَةُ اللَّهِ وَبَرَكَاتُهُ", "سلام استاد، خسته نباشید",
+  ]) {
+    const state = createState();
+    const greeting = processComment(comment("کریم", "youtube", text, 0), state, CONFIG);
+    assert.equal(greeting.type, "greeting", text);
+    assert.equal(greeting.hide, false);
+    assert.equal(greeting.needsLlmReview, true);
+    assert.equal(applyLlmOverride(greeting, { classification: "greeting" }, state, CONFIG).hide, true);
+    assert.equal(state.handles.size, 0);
+    assert.equal(state.signatures.size, 0);
+    assert.equal(processComment(comment("کریم", "youtube", "آیا زکات بر طلا واجب است؟", 1000), state, CONFIG).type, "primary");
+    assert.equal(processComment(comment("کریم", "youtube", text, 2000), state, CONFIG).type, "greeting");
+    assert.equal(processComment(comment("کریم", "youtube", text, 3000), createState(), { ...CONFIG, HIDE_GREETINGS: false }).hide, false);
+  }
+});
+
+test("a greeting prefix cannot hide the question that follows it", () => {
+  const text = "السلام علیکم و رحمة الله آیا زکات بر طلا واجب است؟";
+  assert.equal(normalize(text, CONFIG).isGreetingOnly, false);
+  assert.equal(key(text), key("آیا زکات بر طلا واجب است؟"));
+  assert.equal(processComment(comment("کریم", "youtube", text, 0), createState(), CONFIG).type, "primary");
 });
 
 test("a courtesy variant waits for the LLM and does not hide or take the question slot", () => {
@@ -348,7 +380,7 @@ test("double-send: identical re-send inside the window collapses as a duplicate,
 });
 
 test("double-send keeps the block open: a genuine continuation after the re-send still merges", () => {
-  const { decisions } = runStream(STREAMS.doubleSend);
+  const { decisions } = runStream(STREAMS.doubleSend, [null, null, { classification: "continuation" }]);
   assert.equal(decisions[2].type, "continuation");
   assert.equal(decisions[2].block.fragmentCount, 2);
   // The merged text contains the question once, not doubled.
@@ -402,22 +434,22 @@ test("real session: greeting «اسلام علیکم ورحمت الله است�
   assert.equal(c.matchKey, normalize("حکم بیمه چیست؟", CONFIG).matchKey);
 });
 
-test("real session: «ادامه»-announced fragment 36s later still joins the question", () => {
+test("real session: AI confirms an «ادامه»-announced fragment 36s later", () => {
   const stream = [
     comment("جواد", "youtube", "من این کار را کردم، اما", 0),
     comment("جواد", "youtube", "ادامه سوال هنوز برایم مشخص نیست که این ازدواج خیر است یا شر؟", 36000),
   ];
-  const { decisions } = runStream(stream);
+  const { decisions } = runStream(stream, [null, { classification: "continuation" }]);
   assert.equal(decisions[0].type, "primary");
   assert.equal(decisions[1].type, "continuation");
 });
 
-test("real session: a fragment ending «...ادامه» announces the next one past the window", () => {
+test("real session: AI confirms a fragment after a preceding «...ادامه» marker", () => {
   const stream = [
     comment("کریم", "youtube", "سوال من این است که بیمه شرکتی را حرام میگویید و بیمه حکومتی را جواز میدهید ادامه", 0),
     comment("کریم", "youtube", "در حالیکه حکومت ها وضعی است و دلیل اش را از کجا اوردید؟", 68000),
   ];
-  const { decisions } = runStream(stream);
+  const { decisions } = runStream(stream, [null, { classification: "continuation" }]);
   assert.equal(decisions[1].type, "continuation");
 });
 
@@ -427,7 +459,7 @@ test("real session: explicit marker does NOT defeat the fragment cap or the far 
     comment("سارا", "youtube", "ادامه دارایی شامل خانه و پول نقد می‌شود چه باید کرد؟", 36000),
     comment("سارا", "youtube", "ادامه باز هم یک سوال دیگر دارم در همین مورد؟", 60000),
   ];
-  const { decisions } = runStream(stream);
+  const { decisions } = runStream(stream, [null, { classification: "continuation" }]);
   assert.equal(decisions[1].type, "continuation");
   // third piece is over the cap even though it says «ادامه»
   assert.equal(decisions[2].type, "extra");
@@ -472,10 +504,11 @@ test("semantic distinct (Friday prayer vs fasting, both about travel): both prim
   assert.equal(decisions[1].needsLlmReview, true);
 });
 
-test("first comment in a stream has no LLM review (nothing to compare against)", () => {
+test("first comment receives LLM review even without recent questions", () => {
   const { decisions } = runStream(STREAMS.exactTriplicate);
   assert.equal(decisions[0].type, "primary");
-  assert.ok(!decisions[0].needsLlmReview);
+  assert.equal(decisions[0].needsLlmReview, true);
+  assert.deepEqual(decisions[0].recentQuestions, []);
 });
 
 test("exact duplicate is NOT flagged for LLM review (regex already caught it)", () => {
@@ -522,26 +555,28 @@ test("cue-less split (no ادامه / connector) is extra for the LLM, not auto-
 });
 
 test("over-cap extra must not be joinable by the LLM", () => {
-  const { decisions } = runStream(STREAMS.cappedContinuation);
+  const { decisions } = runStream(STREAMS.cappedContinuation, [null, { classification: "continuation" }]);
   assert.equal(decisions[2].type, "extra");
   assert.equal(decisions[2].needsLlmReview, true);
   assert.equal(decisions[2].allowContinuation, false);
 });
 
-test("announced ادامه continuation still skips the LLM", () => {
+test("announced ادامه continuation waits for the LLM", () => {
   const stream = [
     comment("جواد", "youtube", "من این کار را کردم، اما", 0),
     comment("جواد", "youtube", "ادامه سوال هنوز برایم مشخص نیست که این ازدواج خیر است یا شر؟", 36000),
   ];
   const { decisions } = runStream(stream);
-  assert.equal(decisions[1].type, "continuation");
-  assert.equal(decisions[1].needsLlmReview, undefined);
+  assert.equal(decisions[1].type, "extra");
+  assert.equal(decisions[1].needsLlmReview, true);
+  assert.equal(decisions[1].reviewKind, "same_person");
 });
 
-test("greeting does not go to the LLM", () => {
+test("even a short greeting goes to the LLM", () => {
   const { decisions } = runStream(STREAMS.greetingThenQuestion);
   assert.equal(decisions[0].type, "greeting");
-  assert.equal(decisions[0].needsLlmReview, undefined);
+  assert.equal(decisions[0].needsLlmReview, true);
+  assert.equal(decisions[0].hide, false);
 });
 
 test("JOIN_CONTINUATIONS false: a cued split is not merged", () => {
@@ -647,6 +682,7 @@ test("semantic distinct: LLM primary leaves both questions in the store", () => 
   const { state, decisions } = runStream(STREAMS.semanticDistinctTravel);
   const next = applyLlmOverride(decisions[1], { classification: "primary" }, state, CONFIG);
   assert.equal(next.type, "primary");
+  assert.equal(next.needsLlmReview, undefined);
   assert.equal(state.signatures.size, 2);
 });
 
@@ -655,6 +691,7 @@ test("LLM primary on an extra does not hide (fail-safe)", () => {
   const next = applyLlmOverride(decisions[1], { classification: "primary" }, state, CONFIG);
   assert.equal(next.type, "extra");
   assert.equal(next.hide, undefined);
+  assert.equal(next.needsLlmReview, undefined);
 });
 
 test("LLM timeout / garbage leaves the regex extra visible", () => {
@@ -694,7 +731,7 @@ test("LLM restatement of the same person's question counts as N", () => {
 });
 
 test("LLM cannot join past the fragment cap — leave the fragment visible", () => {
-  const { state, decisions } = runStream(STREAMS.cappedContinuation);
+  const { state, decisions } = runStream(STREAMS.cappedContinuation, [null, { classification: "continuation" }]);
   const next = applyLlmOverride(decisions[2], { classification: "continuation" }, state, CONFIG);
   assert.equal(next.type, "extra");
   assert.equal(next.hide, undefined);
@@ -802,22 +839,23 @@ test("LLM primary on a courtesy maybe promotes it to a real question", () => {
   assert.equal(later.type, "extra");
 });
 
-test("LLM greeting on a real question is ignored", () => {
+test("LLM can recognize a long greeting outside the local word lists", () => {
   const state = createState();
   const first = processComment(
-    comment("رضا", "youtube", "حکم قهوه چیست؟", 0),
+    comment("رضا", "youtube", "از دیدن برنامه شما بسیار خوشحال هستم و برای شما و همه بینندگان عزیز از خداوند مهربان صحت و کامیابی آرزو میکنم", 0),
     state,
     CONFIG
   );
   assert.equal(first.type, "primary");
   const kept = applyLlmOverride(first, { classification: "greeting" }, state, CONFIG);
-  assert.equal(kept.type, "primary");
+  assert.equal(kept.type, "greeting");
+  assert.equal(kept.hide, true);
   const later = processComment(
     comment("رضا", "youtube", "حکم روزه در سفر چیست؟", 120000),
     state,
     CONFIG
   );
-  assert.equal(later.type, "extra");
+  assert.equal(later.type, "primary");
 });
 
 test("LLM greeting on a skipCourtesy leftover frees the person's question slot", () => {
@@ -882,11 +920,13 @@ test("rejects garbage", () => {
 test("honorifics with alef variants strip after letter folding", () => {
   assert.equal(key("آقای حکم نماز چیست؟"), key("حکم نماز چیست؟"));
 });
-test("Arabic-keyboard connector starts a genuine continuation", () => {
+test("Arabic-keyboard connector is a continuation candidate for the LLM", () => {
   const state = createState();
   processComment(comment("کریم", "youtube", "سوال من درباره میراث است؟", 1000), state, CONFIG);
   const next = processComment(comment("کریم", "youtube", "كه شامل خانه هم میشود", 2000), state, CONFIG);
-  assert.equal(next.type, "continuation");
+  assert.equal(next.type, "extra");
+  assert.equal(next.needsLlmReview, true);
+  assert.equal(applyLlmOverride(next, { classification: "continuation" }, state, CONFIG).type, "continuation");
 });
 test("a duplicate first question still consumes the person's question slot", () => {
   const state = createState();

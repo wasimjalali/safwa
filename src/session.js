@@ -528,16 +528,21 @@ export function startSession(deps) {
 
   const LLM_MAX_IN_FLIGHT = 2;
   const LLM_QUEUE_MAX = 20;
-  const LLM_ADMISSION_TTL_MS = 8000;
-  const LLM_FAIL_WINDOW_MS = 60000;
   const LLM_PAUSE_MS = 60000;
+  // Allow a full bounded queue to drain at the request deadline, including
+  // one outage pause. Queue waiting time is separate from the fetch timeout.
+  const LLM_ADMISSION_TTL_MS =
+    config.LLM_TIMEOUT_MS * (Math.ceil(LLM_QUEUE_MAX / LLM_MAX_IN_FLIGHT) + 1) + LLM_PAUSE_MS;
   const llmQueue = [];
   const llmJobs = new Map();
   let llmInFlight = 0;
-  let llmFailures = [];
+  let consecutiveLlmFailures = 0;
   let llmPausedUntil = 0;
+  let llmResumeTimer = null;
 
   function cancelLlm() {
+    clearTimeout(llmResumeTimer);
+    llmResumeTimer = null;
     llmQueue.length = 0;
     for (const job of llmJobs.values()) job.controller.abort();
     llmJobs.clear();
@@ -552,13 +557,17 @@ export function startSession(deps) {
     if (!masterEnabled || !config.LLM_ENABLED || llmJobs.has(sourceId)) return;
     const admittedAt = admission.getRecord(sourceId)?.admittedAt;
     if (Date.now() - admittedAt > LLM_ADMISSION_TTL_MS) return;
+    const contextKey = reviewKey(comment, decision);
+    // A replay must not retry the same failed request after every other AI
+    // result. Changed context or a session reset can trigger a fresh review.
+    if (llmOutcomes.get(sourceId)?.contextKey === contextKey) return;
     const job = {
       comment,
       decision,
       sourceId,
       admittedAt,
       sessionEpoch,
-      contextKey: reviewKey(comment, decision),
+      contextKey,
       context: llm.llmContextFromDecision(comment, decision),
       controller: new AbortController(),
       settingsRevision,
@@ -568,17 +577,30 @@ export function startSession(deps) {
     if (llmQueue.length > LLM_QUEUE_MAX) {
       const dropped = llmQueue.shift();
       llmJobs.delete(dropped.sourceId);
+      console.warn(`${TAG} AI review queue full; comment kept visible.`);
     }
     drainLlm();
   }
 
   function drainLlm() {
-    if (Date.now() < llmPausedUntil) return;
+    if (!masterEnabled || !config.LLM_ENABLED) return;
+    if (Date.now() < llmPausedUntil) {
+      if (llmQueue.length > 0 && llmResumeTimer === null) {
+        llmResumeTimer = setTimeout(() => {
+          llmResumeTimer = null;
+          drainLlm();
+        }, llmPausedUntil - Date.now());
+      }
+      return;
+    }
     while (llmInFlight < LLM_MAX_IN_FLIGHT && llmQueue.length > 0) {
       const job = llmQueue.shift();
       if (job.sessionEpoch !== sessionEpoch || job.controller.signal.aborted ||
           Date.now() - job.admittedAt > LLM_ADMISSION_TTL_MS) {
         if (llmJobs.get(job.sourceId) === job) llmJobs.delete(job.sourceId);
+        if (!job.controller.signal.aborted && job.sessionEpoch === sessionEpoch) {
+          console.warn(`${TAG} queued AI review expired; comment kept visible.`);
+        }
         continue;
       }
       llmInFlight += 1;
@@ -587,6 +609,16 @@ export function startSession(deps) {
         llmInFlight -= 1;
         drainLlm();
       });
+    }
+  }
+
+  function recordLlmFailure(job) {
+    llmOutcomes.set(job.sourceId, { result: null, contextKey: job.contextKey });
+    consecutiveLlmFailures += 1;
+    if (consecutiveLlmFailures >= 3) {
+      llmPausedUntil = Date.now() + LLM_PAUSE_MS;
+      consecutiveLlmFailures = 0;
+      console.warn(`${TAG} AI review paused for 60s after repeated failures; queued reviews will resume automatically.`);
     }
   }
 
@@ -608,17 +640,11 @@ export function startSession(deps) {
         { ...job.context, signal: job.controller.signal }
       );
       if (job.controller.signal.aborted || !masterEnabled || !config.LLM_ENABLED) return;
-      llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
       if (!result) {
-        if (config.LLM_ENABLED) {
-          llmFailures.push(Date.now());
-          if (llmFailures.length >= 3) {
-            llmPausedUntil = Date.now() + LLM_PAUSE_MS;
-            llmFailures = [];
-          }
-        }
+        recordLlmFailure(job);
         return;
       }
+      consecutiveLlmFailures = 0;
       if (guard.documentToken !== documentToken) return;
       if (guard.sessionEpoch !== sessionEpoch) return;
       const record = admission.getRecord(sourceId);
@@ -634,12 +660,7 @@ export function startSession(deps) {
     } catch (err) {
       if (job.controller.signal.aborted) return;
       console.warn(`${TAG} classification failed; question kept visible.`, err);
-      llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
-      llmFailures.push(Date.now());
-      if (llmFailures.length >= 3) {
-        llmPausedUntil = Date.now() + LLM_PAUSE_MS;
-        llmFailures = [];
-      }
+      recordLlmFailure(job);
     }
   }
 
@@ -682,7 +703,7 @@ export function startSession(deps) {
   function resetSession({ reseed = true } = {}) {
     sessionEpoch += 1;
     cancelLlm();
-    llmFailures = [];
+    consecutiveLlmFailures = 0;
     llmPausedUntil = 0;
     admission.reset();
     state = stateMod.createState();

@@ -6,15 +6,15 @@
  * that one question; anything beyond it is flagged as an extra question.
  *
  * processComment() is the SINGLE source of truth for pipeline order:
- *   normalize -> continuation check -> duplicate check -> new/extra -> (render).
+ *   normalize -> exact/fuzzy duplicate check -> new/extra -> (render).
  * Both content.js (live) and the test runner (mocks) call it, so the order is
  * never duplicated and can never drift.
  *
- * Order is not negotiable. Continuation is checked BEFORE duplicate and BEFORE
- * the extra-question rule, so a split question is never misclassified as either.
+ * Only exact normalized repeats collapse locally. Possible continuations,
+ * greetings, fuzzy duplicates and extras stay visible until the LLM confirms.
  *
  * applyLlmOverride() is the SINGLE source of truth for what happens when the
- * LLM later confirms or rejects a regex-uncertain decision. content.js and the
+ * LLM later confirms or rejects a locally uncertain decision. content.js and the
  * tests call it so hide/count/join cannot drift.
  */
 
@@ -187,7 +187,6 @@ function collectRecentQuestions(state, max) {
 
 function withRoomReview(decision, state, config) {
   const recentQuestions = collectRecentQuestions(state, config.LLM_MAX_CONTEXT_COMMENTS);
-  if (recentQuestions.length === 0) return decision;
   decision.needsLlmReview = true;
   decision.reviewKind = "room";
   decision.recentQuestions = recentQuestions;
@@ -265,14 +264,9 @@ export function processComment(comment, state, config, opts = {}) {
   comment.matchKey = matchKey;
   comment.displayText = displayText;
 
-  if (isGreetingOnly) {
-    return { type: "greeting", comment, hide: config.HIDE_GREETINGS !== false };
-  }
-
-  // Classify courtesy even when the teacher wants greetings shown — hide
-  // is the only thing the toggle controls. A leftover blessing must never
-  // take the one-question slot just because hiding is off.
-  if (!opts.skipCourtesy && maybeCourtesy(displayText, config)) {
+  // Local phrases only select the courtesy prompt. Even a bare greeting
+  // stays visible until the model confirms it, regardless of its length.
+  if (!opts.skipCourtesy && (isGreetingOnly || maybeCourtesy(displayText, config))) {
     return {
       type: "greeting",
       comment,
@@ -296,25 +290,6 @@ export function processComment(comment, state, config, opts = {}) {
       collapseOnto(dup.entry, comment);
       return { type: "duplicate", kind: dup.kind, comment, target: dup.entry, count: dup.entry.count };
     }
-  }
-
-  if (
-    config.JOIN_CONTINUATIONS !== false &&
-    !atFragmentCap &&
-    isContinuation(record.open, comment, config)
-  ) {
-    mergeContinuation(record.open, comment);
-    record.lastBlock = record.open;
-    if (record.open.status === "extra") {
-      return {
-        type: "extra",
-        comment,
-        block: record.open,
-        withinWindow: true,
-        hide: !!record.open.hideConfirmed,
-      };
-    }
-    return { type: "continuation", comment, block: record.open };
   }
 
   const openAtEntry = record.open;
@@ -357,7 +332,8 @@ export function processComment(comment, state, config, opts = {}) {
     const recentQuestions = collectRecentQuestions(state, config.LLM_MAX_CONTEXT_COMMENTS);
     registerSignature(comment, state, config);
     const decision = { type: "primary", comment, block };
-    if (recentQuestions.length === 0) return decision;
+    // The first comment can also be a long greeting. It needs classification
+    // even when there is nothing in the room to compare it with yet.
     decision.needsLlmReview = true;
     decision.reviewKind = "room";
     decision.recentQuestions = recentQuestions;
@@ -391,6 +367,16 @@ function greetingDecision(comment, config) {
   return { type: "greeting", comment, hide: config.HIDE_GREETINGS !== false };
 }
 
+function resolvedDecision(decision) {
+  const resolved = { ...decision };
+  delete resolved.needsLlmReview;
+  delete resolved.reviewKind;
+  delete resolved.recentQuestions;
+  delete resolved.previousBlock;
+  delete resolved.allowContinuation;
+  return resolved;
+}
+
 function undoAsGreeting(decision, state, config) {
   const record = getOrCreateHandle(state, identityKey(decision.comment));
   if (decision.comment.matchKey) {
@@ -421,16 +407,13 @@ export function applyLlmOverride(decision, llmResult, state, config) {
     // A later real question already took the slot. Promoting this leftover
     // would mark it extra and risk hiding a blessing. Leave the regex look.
     if (record.hasPrimaryQuestion) return decision;
-    return processComment(decision.comment, state, config, { skipCourtesy: true });
+    return resolvedDecision(processComment(decision.comment, state, config, { skipCourtesy: true }));
   }
 
-  // Room / same-person "greeting" is only safe on leftover courtesy. A real
-  // question the model misread as thanks must stay visible (never hide a maybe).
+  // The model decides whether the whole message is courtesy. Restricting
+  // this verdict to a short regex allowlist defeats long/novel greetings.
   if (classification === "greeting") {
-    if (maybeCourtesy(decision.comment.displayText, config)) {
-      return undoAsGreeting(decision, state, config);
-    }
-    return decision;
+    return undoAsGreeting(decision, state, config);
   }
 
   const record = getOrCreateHandle(state, identityKey(decision.comment));
@@ -439,6 +422,7 @@ export function applyLlmOverride(decision, llmResult, state, config) {
     : (decision.previousBlock ?? record.lastBlock);
 
   if (decision.type === "primary") {
+    if (classification === "primary") return resolvedDecision(decision);
     if (classification !== "duplicate") return decision;
     const next = collapseAsSemantic(decision, llmResult, state);
     if (!next) return decision;
@@ -576,6 +560,8 @@ export function applyLlmOverride(decision, llmResult, state, config) {
         alsoRender: hide ? hideExtraFragments(decision.block, decision.comment) : [],
       };
     }
+
+    if (classification === "primary") return resolvedDecision(decision);
   }
 
   return decision;
