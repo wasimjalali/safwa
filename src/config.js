@@ -70,7 +70,8 @@ export const CONFIG = {
   // and the un-stripped greeting kept the copies from matching.
   HONORIFICS_TO_STRIP: [
     "السلام علیکم", "سلام علیکم", "اسلام علیکم", "وعلیکم السلام", "علیکم السلام",
-    "ورحمت الله", "ورحمه الله", "وبرکاته", "صبح بخیر", "شب بخیر",
+    "ورحمت الله", "ورحمه الله", "و رحمت الله", "و رحمه الله",
+    "وبرکاته", "و برکاته", "صبح بخیر", "شب بخیر",
     "جزاکم الله خیرا", "جزاکم الله", "جزاک الله",
     "بارک الله فیکم", "بارک الله",
     "الحمد لله", "الحمدلله", "ماشاء الله", "ماشاالله",
@@ -203,11 +204,10 @@ export const CONFIG = {
 
   // --- LLM semantic classifier (combo architecture) ---
   //
-  // Regex decides instantly wherever it is certain (exact text, token-set
-  // identity, announced continuation, greetings). Everywhere it is only
-  // "probably" — semantic duplicates, cue-less splits, extras — regex paints
-  // first so the live feed never waits, then the LLM must confirm before we
-  // hide or count. Timeout / garbage leaves the regex look (never hide a maybe).
+  // Exact normalized repeats are the only local classification certain enough
+  // to collapse immediately. Greetings, reordered text, possible continuations
+  // and extras render first, then the LLM must confirm before we hide, join or
+  // count. Timeout or garbage leaves the visible local decision unchanged.
   //
   // Advisory model: Gemma 4 26B on Cloudflare Workers AI.
   // The extension calls a thin Worker so the API token never sits in the
@@ -215,7 +215,7 @@ export const CONFIG = {
   LLM_ENABLED: true,
   LLM_ENDPOINT: "https://safwa-llm.karko-ai.workers.dev/v1/chat/completions",
   LLM_MODEL: "@cf/google/gemma-4-26b-a4b-it",
-  LLM_TIMEOUT_MS: 8000, // fall back to regex if no response in 8s
+  LLM_TIMEOUT_MS: 65000, // two 30s model attempts plus transport headroom
   LLM_MAX_CONTEXT_COMMENTS: 30, // unique questions from this session for late paraphrases
 
   // Dari badge + popup labels. Edit the wording here; nothing else needs to

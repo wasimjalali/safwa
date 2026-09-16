@@ -74,7 +74,7 @@ StreamYard tab (top frame)                      Extension surfaces
 | `src/config.js` | shared config | modified | Adds: `PANEL_MODE`, `WS_MODE`, `WS_ENDPOINTS`, `WS_LIMITS`, `FEATURE_PROXY`, `PANEL` budgets, new `SELECTORS` entries, new `LABELS` (Section 11). |
 | `src/dom.js` | ISOLATED ESM | modified | Adds avatar extraction (`profileAvatar`), show-button resolution + final validation + click. Still the only file that touches StreamYard HTML. |
 | `src/normalize.js`, `src/dedup.js`, `src/grouping.js`, `src/state.js` | pure ESM | unchanged | Matching core. One required hygiene change: v2 passes **plain copies without `el`/`cardEl`** into `processComment` (the core stores comment objects; DOM refs would leak detached nodes). |
-| `src/llm-classifier.js` | ISOLATED ESM | unchanged | Same endpoint/model/timeouts. v2 replaces the native-node staleness guard with the source-record guard (Section 5). |
+| `src/llm-classifier.js` | ISOLATED ESM | changed | Uses the same endpoint with a 65-second client deadline for the Worker's bounded Gemma 4 then GLM 5.3 Flash attempts. v2 replaces the native-node staleness guard with the source-record guard (Section 5). |
 | `src/ui.js`, `styles.css`, `popup/*` | legacy | frozen | Loaded only by the legacy v1 regression build. Never referenced by the v2 manifest or code path. |
 | `tools/build-manifest.js` | Node script | **new** | Emits the packaged manifest: default (no MAIN/bridge entries, `WS_MODE:"off"`) or `--ws=log|enrich|primary` rehearsal variants. `"off"` means the MAIN hook is **not in the package at all**. |
 
@@ -273,7 +273,7 @@ The plain object handed to `grouping.processComment` remains exactly `{ handle, 
 
 **Three identifiers, not interchangeable:** `sourceId` (one local occurrence) · exact native fingerprint (platform + raw handle + exact text — candidate finding only) · `matchKey` (core matching). Without a stable id, two simultaneously observed identical comments are separate occurrences; an indistinguishable remount-vs-resend preserves the question, avoids count inflation, and disables proxy actions that would require an unproven mapping.
 
-**LLM staleness guard (replaces the native-node liveness check):** apply a result only if `documentToken`, `sessionEpoch`, `settingsRevision`, and the `sourceId`+content revision all still match and the request wasn't already applied. Native virtualization no longer voids a legitimate result; reset/settings/content changes do. `applyLlmOverride` remains the single application point; `alsoRender` updates publish in the same transaction. Scheduler: ≤2 in flight, ≤20 queued, requests expire 8 s after admission; after three failures in 60 s, pause new calls 60 s.
+**LLM staleness guard (replaces the native-node liveness check):** apply a result only if `documentToken`, `sessionEpoch`, `settingsRevision`, and the `sourceId`+content revision all still match and the request wasn't already applied. Native virtualization no longer voids a legitimate result; reset/settings/content changes do. `applyLlmOverride` remains the single application point; `alsoRender` updates publish in the same transaction. Scheduler: ≤2 in flight, ≤20 queued. A queued review remains eligible long enough for the bounded queue to drain. After three consecutive failed client requests, calls pause for 60 s and queued work resumes automatically. A successful classification resets the failure count.
 
 ---
 
@@ -390,7 +390,7 @@ The native panel remains untouched in every row of this table. Demotions latch f
 | 20 | Room silence / API silence | no inbound room traffic 6 s / API 75 s (heartbeats continue on a healthy quiet feed) | demote room acquisition / mark feature-star state stale | nothing / no on-air claims |
 | 21 | Correlation timeout | expected correlation unresolved 1.5 s (DOM available) | demote comment acquisition; DOM admission was never delayed | nothing |
 | 22 | Reconnect with unproven recovery | reconnect observed | continue through DOM; no assumed backfill | nothing |
-| 23 | LLM outage | 8 s timeout / invalid reply; 3 failures per 60 s → 60 s pause | regex decision stands | ambiguous items stay readable |
+| 23 | LLM outage | Gemma 4 fails its 30 s attempt, then GLM 5.3 Flash fails its 30 s attempt; 3 consecutive failed client requests → 60 s pause | visible local decision stands | uncertain items stay readable |
 | 24 | Processing backlog | oldest admitted work >1 s | suspend enrichment + new LLM work; drain with raw rows | simple view if needed |
 | 25 | Resource budget exceeded | Section 12 budget breach | reduce rendering, simple view; **never evict questions** | capacity guidance |
 
@@ -479,7 +479,7 @@ Existing labels (`joined`, `askedTimes`, `possibleDuplicate`, `secondQuestion`, 
 | Mounted rows | ≤150 logical rows (windowed); older records stay scrollable — rendering limits never evict stored questions |
 | Heap | ≤50 MiB after GC at 5,000 records, **including** transport indexes/buffers |
 | Long tasks | no extension-caused task >50 ms under the load test |
-| LLM scheduler | ≤2 in flight, ≤20 queued, 8 s expiry from admission |
+| LLM scheduler | ≤2 in flight, ≤20 queued, 65 s client deadline; queue eligibility covers a full bounded drain plus one outage pause |
 
 If the supported workload misses a target, fix the bottleneck or shrink the declared envelope — never "solve" memory by evicting history.
 

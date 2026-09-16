@@ -7,14 +7,14 @@ import * as panelModel from "../src/panel-model.js";
 import * as protocol from "../src/protocol.js";
 import * as admissionMod from "../src/admission.js";
 import * as healthMod from "../src/health.js";
-import { llmContextFromDecision } from "../src/llm-classifier.js";
+import { classifyComment, llmContextFromDecision } from "../src/llm-classifier.js";
 
 const real = { setTimeout, clearTimeout, setInterval, clearInterval, now: Date.now };
 let passed = 0;
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn); }, fire(...args) { this.listeners.forEach(fn => fn(...args)); } });
 
-async function harness({ ai = false, classify, initial = {}, duringLoad, failFirstRead = false } = {}) {
+async function harness({ ai = false, classify, classifyFirst = false, initial = {}, duringLoad, failFirstRead = false } = {}) {
   let time = 100000;
   let nextTimer = 0;
   const timers = new Map();
@@ -63,7 +63,15 @@ async function harness({ ai = false, classify, initial = {}, duringLoad, failFir
   };
   startSession({ CONFIG, STORAGE_KEYS, readStoredSettings, applyStoredSettings, dom, stateMod, grouping,
     panelModel, protocol, admissionMod, healthMod, wsParser: null,
-    llm: { llmContextFromDecision, classifyComment: classify ?? (async () => null) } });
+    llm: { llmContextFromDecision, classifyComment: (comment, recent, config, context) => {
+      // Most race tests seed a known question before queuing ambiguous work.
+      // Model that successful initial review explicitly; first-comment tests
+      // opt in to controlling it with classifyFirst.
+      if (!classifyFirst && context.reviewKind === "room" && recent.length === 0) {
+        return Promise.resolve({ classification: "primary" });
+      }
+      return classify ? classify(comment, recent, config, context) : Promise.resolve(null);
+    } } });
   await settle();
   const messages = [];
   const port = { name: protocol.PORT_NAME, onMessage: event(), onDisconnect: event(), postMessage: msg => messages.push(msg) };
@@ -175,7 +183,13 @@ await check("cross-platform duplicates share a count and return when collapse is
   assert.equal(h.snapshot().rows.length, 2);
 });
 await check("all teacher toggles replay existing comments safely", async () => {
-  const h = await harness();
+  const h = await harness({ ai: true, classify: async (_comment, _recent, _config, context) => (
+    context.reviewKind === "courtesy"
+      ? { classification: "greeting" }
+      : context.reviewKind === "same_person"
+        ? { classification: "continuation" }
+        : { classification: "primary" }
+  ) });
   await h.add("@a", "سوال من در مورد میراث است");
   await h.add("@a", "و دارایی شامل خانه است");
   await h.add("@b", "سلام استاد");
@@ -296,4 +310,149 @@ await check("failed startup preferences recover fully before capture or AI resum
   await h.tick(1500);
   assert.equal(h.messages.filter(m => m.type === "HEALTH").at(-1).settingsError, false);
 });
+await check("queued AI reviews survive slow earlier requests", async () => {
+  const jobs = [];
+  const h = await harness({ ai: true, classify: (comment) => new Promise(resolve => jobs.push({ comment, resolve })) });
+  await h.add("@a", "حکم نماز چیست؟");
+  await h.add("@b", "حکم روزه چیست؟");
+  await h.add("@c", "حکم زکات چیست؟");
+  await h.add("@d", "حکم حج چیست؟");
+  assert.equal(jobs.length, 2);
+  await h.tick(12000);
+  jobs[0].resolve({ classification: "primary" });
+  await h.tick();
+  assert.equal(jobs.length, 3, "the third review must start even after 8 seconds in the queue");
+  assert.equal(jobs[2].comment.handle, "@d");
+  jobs[1].resolve({ classification: "primary" });
+  jobs[2].resolve({ classification: "primary" });
+  await h.tick();
+  assert.equal(h.snapshot().rows.length, 4);
+});
+
+await check("outage pause resumes queued reviews without another comment", async () => {
+  const jobs = [];
+  const h = await harness({ ai: true, classify: () => new Promise(resolve => jobs.push(resolve)) });
+  await h.add("@a", "حکم نماز چیست؟");
+  for (const [i, text] of ["حکم روزه چیست؟", "حکم زکات چیست؟", "حکم حج چیست؟", "حکم وضو چیست؟", "حکم نکاح چیست؟"].entries()) {
+    await h.add(`@person${i}`, text);
+  }
+  jobs[0](null); await h.tick();
+  jobs[1](null); await h.tick();
+  jobs[2](null); await h.tick();
+  assert.equal(jobs.length, 4, "the fifth review waits during the outage pause");
+  await h.tick(61000);
+  assert.equal(jobs.length, 5, "a timer must restart the queue without new comments");
+  jobs[3]({ classification: "primary" });
+  jobs[4]({ classification: "primary" });
+  await h.tick();
+  assert.equal(jobs.length, 5, "replay must not repeatedly retry unchanged failed requests");
+  assert.equal(h.snapshot().rows.length, 6);
+});
+
+await check("slow consecutive failures still trigger the outage pause", async () => {
+  const jobs = [];
+  const h = await harness({ ai: true, classify: () => new Promise(resolve => jobs.push(resolve)) });
+  await h.add("@a", "حکم نماز چیست؟");
+  for (const [i, text] of ["حکم روزه چیست؟", "حکم زکات چیست؟", "حکم حج چیست؟", "حکم وضو چیست؟", "حکم نکاح چیست؟"].entries()) {
+    await h.add(`@slow${i}`, text);
+  }
+  jobs[0](null); await h.tick(61000);
+  jobs[1](null); await h.tick(61000);
+  jobs[2](null); await h.tick();
+  assert.equal(jobs.length, 4, "a third slow failure must pause before starting another review");
+  await h.tick(61000);
+  assert.equal(jobs.length, 5, "the paused queue must resume on its timer");
+  jobs[3]({ classification: "primary" });
+  jobs[4]({ classification: "primary" });
+  await h.tick();
+});
+
+await check("master off cancels a scheduled outage recovery", async () => {
+  let calls = 0;
+  const h = await harness({ ai: true, classify: async () => { calls++; return null; } });
+  await h.add("@a", "حکم نماز چیست؟");
+  for (const [i, text] of ["حکم روزه چیست؟", "حکم زکات چیست؟", "حکم حج چیست؟", "حکم وضو چیست؟"].entries()) {
+    await h.add(`@person${i}`, text);
+  }
+  assert.equal(calls, 3);
+  await h.setting(STORAGE_KEYS.enabled, false);
+  await h.tick(61000);
+  assert.equal(calls, 3);
+});
+
+await check("screenshot sequence keeps the split question and folds greetings and confirmed extras", async () => {
+  const reviewed = [];
+  const h = await harness({ ai: true, classify: async (comment, _recent, _config, context) => {
+    reviewed.push(comment.displayText);
+    if (context.reviewKind === "courtesy") return { classification: "greeting" };
+    if (comment.displayText.startsWith("ادامه:")) return { classification: "continuation" };
+    return { classification: context.reviewKind === "same_person" ? "extra" : "primary" };
+  } });
+  const travel = "سلام استاد، آیا نماز در سفر قصر خوانده میشود؟";
+  const rent = "آیا گرفتن اجاره خانه مسکونی با پول قرض جایز است؟";
+  const tarawih = "یک سوال دیگر: نماز تراویح چند رکعت خوانده میشود؟";
+  const first = "استاد لطفا بفرمایید که اگر خانمی عقد موقت داشته باشد و مدت آن تمام نشده";
+  const continuation = "ادامه: ولی شوهرش به گفته اطرافیان فوت کرده است، حکم آن چیست؟";
+  const zakat = "آیا زکات بر طلا واجب است؟";
+  const greeting = "السلام علیکم و رحمة الله";
+  await h.add("@iamwasim.jalali", travel);
+  await h.add("@iamwasim.jalali", travel);
+  await h.add("@iamwasim.jalali", rent);
+  await h.add("@iamwasim.jalali", tarawih);
+  await h.add("@iamwasim.jalali", "سلام استاد، خسته نباشید");
+  await h.add("@Wasim.Jalali", first);
+  await h.tick(55000);
+  await h.add("@Wasim.Jalali", continuation);
+  await h.add("@Wasim.Jalali", zakat);
+  await h.add("@Wasim.Jalali", greeting);
+  const { rows, folded } = h.snapshot();
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].badges.count, 2);
+  assert.equal(rows[1].primary.displayText, first);
+  assert(rows[1].joinedFragments.some(member => member.displayText === continuation));
+  for (const text of [rent, tarawih, zakat, greeting]) {
+    assert(folded.some(row => row.displayText === text), text);
+  }
+  assert(reviewed.includes(greeting), "the greeting must be classified by the model");
+});
+
+await check("classification accepts a response after the old eight-second deadline", async () => {
+  const h = await harness();
+  const originalFetch = globalThis.fetch;
+  let settled = false;
+  globalThis.fetch = (_url, { signal }) => new Promise((resolve, reject) => {
+    signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+    setTimeout(() => resolve(Response.json({ choices: [{ message: { content: '{"classification":"extra"}' } }] })), 12000);
+  });
+  try {
+    const pending = classifyComment({ displayText: "آیا زکات بر طلا واجب است؟" }, [], CONFIG).then(result => { settled = true; return result; });
+    await h.tick(9000);
+    assert.equal(settled, false);
+    await h.tick(4000);
+    assert.deepEqual(await pending, { classification: "extra" });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+await check("only actual request deadlines log a timeout, not reset cancellations", async () => {
+  const h = await harness();
+  const originalFetch = globalThis.fetch, originalWarn = console.warn;
+  const warnings = [];
+  globalThis.fetch = (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+  });
+  console.warn = message => warnings.push(message);
+  try {
+    const controller = new AbortController();
+    const canceled = classifyComment({ displayText: "حکم نماز چیست؟" }, [], CONFIG, { signal: controller.signal });
+    controller.abort();
+    assert.equal(await canceled, null);
+    assert.equal(warnings.length, 0);
+    const timedOut = classifyComment({ displayText: "حکم نماز چیست؟" }, [], CONFIG);
+    await h.tick(CONFIG.LLM_TIMEOUT_MS);
+    assert.equal(await timedOut, null);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /timed out \(65000ms\)/);
+  } finally { globalThis.fetch = originalFetch; console.warn = originalWarn; }
+});
+
 console.log(`session integration tests: ${passed} passed`);

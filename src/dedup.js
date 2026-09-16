@@ -98,10 +98,9 @@ export function checkDuplicate(matchKey, state, config) {
     if (isDup) {
       const entry = state.signatures.get(candidateKey);
       if (entry) {
-        // Identical token set (reorder / same words) is as certain as an exact
-        // map hit. Partial overlap stays fuzzy and must wait for the LLM.
-        const kind = sim >= 1 ? "exact" : "fuzzy";
-        return { isDuplicate: true, entry, kind, similarity: sim };
+        // Reordered words can change meaning even at 100% token overlap.
+        // Only a map hit is exact; all similarity matches need the model.
+        return { isDuplicate: true, entry, kind: "fuzzy", similarity: sim };
       }
     }
   }

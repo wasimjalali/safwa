@@ -6,8 +6,8 @@
  *
  * All visible text comes from CONFIG.LABELS (Dari), and badges render
  * right-to-left so Persian shows correctly. Confidence tiers:
- *   - Greeting             -> left untouched (a salutation, never a question).
- *   - Exact / token-set / LLM-confirmed duplicate -> collapse (hide) + count
+ *   - LLM-confirmed greeting -> folded when the teacher enables that setting.
+ *   - Exact / LLM-confirmed duplicate -> collapse (hide) + count
  *                            badge on the original.
  *   - Fuzzy / near dup     -> marked + dimmed until the LLM confirms (then hide).
  *   - Continuation merge   -> "joined" badge, both fragments stay visible.
@@ -120,8 +120,8 @@ export function render(decision, config) {
 
   switch (decision.type) {
     case "greeting":
-      // Regex-certain greetings fold when the teacher toggle is on. A courtesy
-      // maybe stays visible until the LLM confirms (never hide a maybe).
+      // Only an LLM-confirmed greeting carries hide=true. Prompt candidates
+      // stay visible until classification completes.
       if (decision.hide && config.HIDE_GREETINGS !== false) collapse();
       break;
 

@@ -138,20 +138,20 @@ globalThis.fetch = () =>
 
 await import(`../src/content-legacy.js?llm-stale-test=${Date.now()}`);
 
-for (let turn = 0; turn < 20 && fetchResolvers.length < 1; turn++) {
+for (let turn = 0; turn < 20 && fetchResolvers.length < 2; turn++) {
   await new Promise((resolve) => setImmediate(resolve));
 }
-assert.equal(fetchResolvers.length, 1, "expected semantic review for the second initial comment");
+assert.equal(fetchResolvers.length, 2, "expected reviews for both initial comments");
 
 recycled.replaceComment("viewer-three", "new question in the recycled row");
 observerCallback([{ addedNodes: [recycled.textElement] }]);
 
-for (let turn = 0; turn < 20 && fetchResolvers.length < 2; turn++) {
+for (let turn = 0; turn < 20 && fetchResolvers.length < 3; turn++) {
   await new Promise((resolve) => setImmediate(resolve));
 }
-assert.equal(fetchResolvers.length, 2, "expected semantic review for the replacement comment");
+assert.equal(fetchResolvers.length, 3, "expected semantic review for the replacement comment");
 
-fetchResolvers[0]({
+fetchResolvers[1]({
   ok: true,
   json: async () => ({
     choices: [{ message: { content: '{"classification":"duplicate"}' } }],

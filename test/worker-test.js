@@ -4,9 +4,15 @@ import { classificationMessages } from "../src/llm-prompts.js";
 let calls = 0;
 let limited = false;
 let output = '{"classification":"primary"}';
+let outputs = null;
 const env = {
   CLASSIFY_LIMITER: { limit: async () => ({ success: !limited }) },
-  AI: { run: async () => { calls++; if (output instanceof Error) throw output; return { response: output }; } },
+  AI: { run: async (model) => {
+    calls++;
+    const value = outputs?.shift() ?? output;
+    if (value instanceof Error) throw value;
+    return { response: value, model };
+  } },
 };
 const valid = { messages: classificationMessages({ displayText: "حکم نماز چیست؟" }, []) };
 async function request(body, extra = {}) {
@@ -22,6 +28,42 @@ await check("current and legacy classification messages remain accepted", async 
   assert.equal(res.status, 200);
   assert.deepEqual(JSON.parse((await res.json()).choices[0].message.content), { classification: "primary" });
   assert.equal(res.headers.get("Access-Control-Allow-Origin"), "https://streamyard.com");
+});
+await check("GLM 5.3 Flash is used when Gemma fails", async () => {
+  outputs = [new Error("Gemma unavailable"), '{"classification":"primary"}'];
+  const before = calls;
+  const res = await request(valid);
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.model, "@cf/zai-org/glm-5.3-flash");
+  assert.equal(calls, before + 2);
+  outputs = null;
+});
+await check("malformed duplicate matches fall through to GLM", async () => {
+  const messages = classificationMessages(
+    { displayText: "آیا طلا زکات دارد؟" },
+    [{ displayText: "آیا زکات بر طلا واجب است؟" }]
+  );
+  outputs = [
+    '{"classification":"duplicate"}',
+    '{"classification":"duplicate","match":1}',
+  ];
+  let res = await request({ messages });
+  let body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.model, "@cf/zai-org/glm-5.3-flash");
+  assert.deepEqual(JSON.parse(body.choices[0].message.content), { classification: "duplicate", match: 1 });
+
+  outputs = [
+    '{"classification":"duplicate","match":2}',
+    '{"classification":"primary"}',
+  ];
+  res = await request({ messages });
+  body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.model, "@cf/zai-org/glm-5.3-flash");
+  assert.deepEqual(JSON.parse(body.choices[0].message.content), { classification: "primary" });
+  outputs = null;
 });
 await check("unrelated websites cannot call inference through browser CORS", async () => {
   const before = calls;

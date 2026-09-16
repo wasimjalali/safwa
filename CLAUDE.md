@@ -20,13 +20,13 @@ A Manifest V3 Chrome extension that cleans a StreamYard live Q&A comment feed in
 
 2. **Selectors live in two files only.** Every runtime StreamYard-specific selector belongs in `src/config.js` (the selector constants) and `src/dom.js` (extraction logic). No selector, class name, or DOM-shape assumption may appear anywhere else. Sanitized, inert live-capture evidence may be stored under `captures/`, but runtime code must never import it. This is the layer most likely to break, so it is isolated on purpose.
 
-3. **Pipeline order is fixed:** continuation check → duplicate check → one-question-per-person. Never reorder. Continuation-first is what stops a split question from being wrongly flagged or wrongly deduplicated. One narrow exception, on purpose: a re-send with a matchKey IDENTICAL to the handle's open block collapses as a duplicate before the continuation check, because a verbatim repeat can never be a genuine split (see the double-send guard in `grouping.js`).
+3. **Pipeline order is fixed:** exact/fuzzy duplicate check → one-question-per-person → LLM override. Only exact normalized repeats collapse locally. Possible continuations, greetings, reordered text and fuzzy matches stay visible until the LLM confirms them.
 
 4. **Fail safe, never corrupt the feed.** If selectors stop matching, the extension does nothing visible and logs a clear `[Ṣafwa]` console warning. A `try/catch` that exists to *fail safe around DOM reads* is allowed here (it is spec-mandated); a `try/catch` that silently swallows a logic bug is not.
 
-5. **Do not hide a maybe.** Only regex-certain exact/token-set duplicates auto-collapse immediately. Ambiguous extras and partial fuzzies stay visible until the LLM confirms. `AUTO_HIDE_ANYTHING_AMBIGUOUS` must stay `false`.
+5. **Do not hide a maybe.** Only exact normalized repeats auto-collapse immediately. Ambiguous extras, continuations, greetings and partial fuzzies stay visible until the LLM confirms. `AUTO_HIDE_ANYTHING_AMBIGUOUS` must stay `false`.
 
-6. **Cost asymmetry.** Wrongly merging two questions is cheap (a longer block). Wrongly hiding a continuation destroys a real question. Inside the time window, ambiguity resolves toward merging, never toward hiding.
+6. **Cost asymmetry.** Wrongly hiding a real question is the costliest failure. Uncertain comments stay visible while classification is pending or unavailable.
 
 ## Out of scope (do not build)
 
@@ -35,22 +35,21 @@ A Manifest V3 Chrome extension that cleans a StreamYard live Q&A comment feed in
 
 ## v2: LLM semantic layer (combo architecture)
 
-The regex pipeline handles exact/fuzzy dedup, continuation, and extra-question detection instantly. Ambiguous cases go to the LLM as an async second opinion.
+The local pipeline handles exact dedup and provisional new/extra decisions instantly. Every other classification goes to the LLM asynchronously.
 
 Key rules:
-- Regex-certain cases never wait on the model: exact text, token-set identity (reorder), announced continuation, greetings.
-- Regex-uncertain cases (semantic duplicates, cue-less splits, extras, partial fuzzy) render first; the LLM must confirm before we hide or count.
+- Only exact normalized repeats skip the model. Reordered text, greetings, continuations, extras and semantic matches render first; the LLM must confirm before we hide, join or count.
 - If the LLM says duplicate, hide the copy and increment N on the original. If it says extra, hide with no badge. If it says continuation, join.
-- If the LLM is unreachable, times out (8s), or returns garbage, the regex decision stands. The feed is never delayed or broken.
+- Gemma 4 gets 30 seconds. If it times out, fails or returns invalid output, the Worker tries GLM 5.3 Flash once with the same 30-second limit. The extension allows 65 seconds for both attempts. If both fail, the visible local decision stands.
 - `LLM_ENABLED: false` in `config.js` reverts to regex-only (ambiguous extras/fuzzies stay visible).
-- Live model: Gemma 4 26B on Cloudflare Workers AI (`@cf/google/gemma-4-26b-a4b-it`), via the `safwa-llm` Worker in `deploy/cloudflare`. The API token never lives in the extension.
+- Primary model: Gemma 4 26B (`@cf/google/gemma-4-26b-a4b-it`). Backup: GLM 5.3 Flash (`@cf/zai-org/glm-5.3-flash`). Both run through the `safwa-llm` Cloudflare Worker, so no API token lives in the extension.
 
 ## Architecture notes
 
 - The matching core (`normalize.js`, `dedup.js`, `grouping.js`, `state.js`) is pure: no DOM, no `chrome.*`, no globals. It must stay importable in plain Node so `test/run-tests.js` can prove it on `test/mock-comments.js`.
 - `content.js` loads `session.js`, which owns the DOM observer, admission, matching, bounded AI queue and direct panel port. `panel/panel.js` renders snapshots and patches. `content-legacy.js` and `ui.js` are regression-only.
 - AI results are replayed in arrival order only against their original context. Master-off cancels pending classification. Reset clears AI jobs and session history, then rereads currently mounted comments.
-- `llm-classifier.js` performs browser classification requests; pure task prompts live in `llm-prompts.js`. Three prompts include courtesy, plus `room` (duplicate vs primary) and `same_person` (continuation vs duplicate vs extra). Gemma 4: real `system` role, thinking off (`chat_template_kwargs.enable_thinking: false`), few-shot, question last.
+- `llm-classifier.js` performs browser classification requests; pure task prompts live in `llm-prompts.js`. Three prompts include courtesy, plus `room` (duplicate vs primary) and `same_person` (continuation vs duplicate vs extra). Both Worker models receive a real `system` role, thinking off (`chat_template_kwargs.enable_thinking: false`), few-shot examples and the question last.
 - The single source of truth for pipeline order is `processComment` in `grouping.js`. The single source of truth for LLM confirmations is `applyLlmOverride`. Both content.js and the tests call them, so the order is never duplicated.
 
 ## How to verify
@@ -69,11 +68,11 @@ Key rules:
 4. Wire core to live DOM (done, late-panel retry, virtualized-row, duplicate-anchor, stale-LLM and visible-extra safety regressions)
 5. UI layer (done)
 6. Tuning pass (ready, needs a live session)
-7. LLM semantic layer / combo architecture (done, 44/44 tests, Gemma 4 eval 68/68)
+7. LLM semantic layer / combo architecture (done; Gemma 4 primary, GLM 5.3 Flash backup)
 
 ## Live LLM
 
-- Model: `@cf/google/gemma-4-26b-a4b-it` (Gemma 4 26B)
+- Models: `@cf/google/gemma-4-26b-a4b-it` primary, `@cf/zai-org/glm-5.3-flash` backup
 - Worker: `deploy/cloudflare` (`wrangler deploy`)
 - Endpoint: `LLM_ENDPOINT` in `src/config.js`
 

@@ -18,10 +18,10 @@ The master switch pauses new capture and cancels pending AI requests. Existing s
 | Collapse repeated questions | Certain or AI-confirmed copies share one question and count. | Copies remain separate. |
 | Hide extra questions | AI-confirmed additional questions from the same platform/handle move to the folded list. | They remain visible with an ordinal badge. |
 | Join continuations | The original and one continuation appear together. | Messages remain separate. Other enabled filters still apply. |
-| Fold greetings | Greetings, thanks and blessings without a question move to the folded list. | They remain visible. |
-| Compare meaning with AI | Ambiguous text and recent question text are sent for classification. | New text is not sent; uncertain questions stay visible. |
+| Fold greetings | AI-confirmed greetings, thanks and blessings without a question move to the folded list. | They remain visible. |
+| Compare meaning with AI | Comments other than exact normalized repeats are sent for classification. | New text is not sent; uncertain questions stay visible. |
 
-Possible duplicates stay visible until confirmed. AI errors, timeouts and rate limits leave uncertain comments visible. All folded comments remain readable through the folded list or duplicate disclosures.
+Only exact normalized repeats collapse without AI. Greetings, continuations, reordered text and meaning-based matches stay visible until confirmed. Gemma 4 is the primary classifier and GLM 5.3 Flash is tried once if Gemma times out, fails or returns invalid output. AI errors, timeouts and rate limits leave uncertain comments visible. All folded comments remain readable through the folded list or duplicate disclosures.
 
 Reset is scoped to the connected studio tab. It clears matching history and pending AI work, then rereads comments currently mounted in StreamYard. Comments in StreamYard are never deleted. The reset button shows progress and a success or failure message.
 
@@ -43,11 +43,11 @@ DOM-only capture cannot recover comments that StreamYard never mounts while its 
 ## Architecture
 
 - `src/session.js` owns capture, session state, AI scheduling and panel synchronization in the content script.
-- `normalize.js`, `state.js`, `dedup.js` and `grouping.js` form the pure matching core. Pipeline order is continuation, duplicate, then new/extra question.
+- `normalize.js`, `state.js`, `dedup.js` and `grouping.js` form the pure matching core. It handles exact duplicates and visible new/extra decisions first, then applies LLM-confirmed greetings, continuations and semantic duplicates.
 - `src/config.js` and `src/dom.js` contain all runtime StreamYard selectors.
 - `panel/` renders the question queue, settings and feedback. It never modifies StreamYard's layout.
 - `src/sw.js` activates the panel and validates native-action routing. No matching state depends on service-worker lifetime.
-- `deploy/cloudflare/` contains the existing classification Worker. It accepts only the extension's bounded task prompts, limits requests per IP and returns classification JSON. It doesn't return arbitrary model text.
+- `deploy/cloudflare/` contains the classification Worker. It accepts only the extension's bounded task prompts, limits requests per IP and returns classification JSON. It calls Gemma 4 first, then GLM 5.3 Flash once if needed. It doesn't return arbitrary model text.
 - `src/llm-prompts.js` shares the task prompts between the extension and Worker, preserving existing clients.
 
 The production configuration is `PANEL_MODE: "sidebar"`, `WS_MODE: "off"`. WebSocket code is experimental and requires the evidence gates in [the v2 specification](specs/safwa-v2-architecture.md). Production ZIPs exclude the WebSocket hooks and the legacy inline UI. Native interaction is limited to explicit, validated teacher clicks and cleanup of old Ṣafwa inline marks.
@@ -63,7 +63,7 @@ This is a dependency-free JavaScript project. TypeScript and lint are not config
 
 A store ZIP contains only `manifest.json`, the sidebar, required runtime modules, icons and the bundled fonts/licenses. Never include source captures, test fixtures, backend files, mockups, older ZIPs or local screenshots. The production package must exclude `ws-main.js`, `ws-bridge.js`, `content-legacy.js` and `ui.js`.
 
-For the Worker, use the installed Wrangler CLI from `deploy/cloudflare` and validate with `wrangler deploy --dry-run`. Its `CLASSIFY_LIMITER` binding allows 120 classification requests per minute per IP at each Cloudflare location. This is abuse mitigation, not authentication or a global spending cap. Shared-network users share that limit; excess requests degrade to local filtering. No paid tier or new database is required by these source changes.
+For the Worker, use the installed Wrangler CLI from `deploy/cloudflare` and validate with `wrangler deploy --dry-run`. Its `CLASSIFY_LIMITER` binding allows 120 classification requests per minute per IP at each Cloudflare location. This is abuse mitigation, not authentication or a global spending cap. Shared-network users share that limit; excess requests degrade to local filtering. GLM 5.3 Flash requires Workers Paid or prepaid AI Gateway credits and is called only after Gemma fails.
 
 ## 2.0.5 audit
 
