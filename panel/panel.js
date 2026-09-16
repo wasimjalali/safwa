@@ -20,6 +20,8 @@ const masterEl = document.getElementById("master");
 const gear = document.getElementById("gear");
 const reset = document.getElementById("reset");
 const newItems = document.getElementById("new-items");
+const feedback = document.getElementById("feedback");
+const versionEl = document.getElementById("version");
 
 const bound = { token: null, epoch: null, revision: 0 };
 const model = new Map();
@@ -29,18 +31,19 @@ let port = null;
 let tabId = null;
 let windowId = null;
 let boundTab = false;
-let windowCount = CONFIG.PANEL.maxMountedRows;
+let historyStartId = null;
+let pageNavigation = false;
 let lastRowIds = [];
 let enabled = true;
 let lastHealth = { observer: "ok", wsState: "off" };
 let lastHealthAt = Date.now();
 let savedScrollTop = 0;
 const pendingFeature = new Map();
-const WINDOW_CAP = 1200;
-let lastWindowCount = 0;
+let bindingGeneration = 0;
+let snapshotModel = null;
+let pendingReset = null;
+let connected = false;
 
-app.hidden = false;
-document.getElementById("static-failure").hidden = true;
 document.querySelector(".head__title").textContent = L.panelTitle;
 document.querySelector(".filter__label").textContent = L.filterLabel;
 document.getElementById("reset").textContent = L.resetSession;
@@ -48,6 +51,41 @@ document.getElementById("new-items").textContent = L.panelNewItems;
 document.getElementById("gear").setAttribute("aria-label", L.settingsHeading);
 document.getElementById("list").removeAttribute("aria-live");
 document.getElementById("status").setAttribute("aria-live", "polite");
+masterEl.setAttribute("aria-label", L.filterLabel);
+reset.disabled = true;
+
+function showFeedback(text, error = false, source = "") {
+  feedback.dataset.source = source;
+  feedback.textContent = text;
+  feedback.hidden = !text;
+  feedback.classList.toggle("feedback--error", error);
+  feedback.setAttribute("role", error ? "alert" : "status");
+}
+
+function finishReset(ok) {
+  if (pendingReset) clearTimeout(pendingReset.timer);
+  pendingReset = null;
+  reset.disabled = !connected;
+  reset.textContent = L.resetSession;
+  reset.removeAttribute("aria-busy");
+  showFeedback(ok ? L.resetDone : L.resetFailed, !ok);
+}
+
+function requestReset() {
+  if (pendingReset) return;
+  if (!port || !boundTab || !connected) { finishReset(false); return; }
+  const requestId = crypto.randomUUID();
+  pendingReset = { requestId, timer: setTimeout(() => finishReset(false), 5000) };
+  reset.disabled = true;
+  reset.textContent = L.resetting;
+  reset.setAttribute("aria-busy", "true");
+  showFeedback(L.resetting);
+  try {
+    port.postMessage(makeEnvelope(MESSAGE_TYPES.RESET_SESSION, { ...envelopeFields(), requestId }));
+  } catch {
+    finishReset(false);
+  }
+}
 
 function wireUi() {
   gear.addEventListener("click", () => {
@@ -57,19 +95,20 @@ function wireUi() {
     settings.hidden = !opening;
     list.hidden = opening || !enabled;
     gear.setAttribute("aria-expanded", String(opening));
+    newItems.hidden = opening || !enabled || (historyStartId === null && nearEnd());
     if (!opening) list.scrollTop = savedScrollTop;
   });
   gear.setAttribute("aria-expanded", "false");
-  reset.addEventListener("click", () => {
-    if (!port) return;
-    port.postMessage(makeEnvelope(MESSAGE_TYPES.RESET_SESSION, envelopeFields()));
-  });
+  reset.addEventListener("click", requestReset);
   newItems.addEventListener("click", () => {
-    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+    historyStartId = null;
+    pageNavigation = true;
+    render();
+    list.scrollTo({ top: list.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     newItems.hidden = true;
   });
   list.addEventListener("scroll", () => {
-    if (nearEnd()) newItems.hidden = true;
+    if (historyStartId === null && nearEnd()) newItems.hidden = true;
     list.classList.add("is-scrolling");
     clearTimeout(list.__scrollIdle);
     list.__scrollIdle = setTimeout(() => list.classList.remove("is-scrolling"), 700);
@@ -77,24 +116,34 @@ function wireUi() {
 }
 
 async function init() {
+  versionEl.textContent = `${L.versionLabel} ${chrome.runtime.getManifest().version}`;
+  app.hidden = false;
+  document.getElementById("static-failure").hidden = true;
   setStatus(L.panelLoading);
   renderSettings();
   wireUi(); // UI reacts before any chrome API await
-  await loadPrefs();
+  try { await loadPrefs(); }
+  catch (err) { showFeedback(L.settingsFailed, true); console.error("[Ṣafwa] preferences unavailable", err); }
   await bindTab();
   chrome.tabs?.onActivated?.addListener(() => bindTab());
-  chrome.tabs?.onUpdated?.addListener((_id, info) => {
-    if (info.status === "complete") bindTab();
+  chrome.tabs?.onUpdated?.addListener((id, info) => {
+    if (id === tabId && (info.status === "loading" || info.url)) {
+      bindingGeneration += 1;
+      detach();
+    }
+    if (info.status === "complete" && (id === tabId || !port)) bindTab().catch(() => scheduleRebind());
   });
   chrome.windows?.onFocusChanged?.addListener(() => bindTab());
   setInterval(() => {
     if (!port || Date.now() - lastHealthAt < 4000) return;
+    connected = false;
+    reset.disabled = true;
+    render();
     setStatus(L.panelDisconnected);
     try {
       port.postMessage(makeEnvelope(MESSAGE_TYPES.RESYNC, envelopeFields()));
     } catch {
-      port = null;
-      tabId = null;
+      detach({ connectionLost: true });
       scheduleRebind();
     }
     lastHealthAt = Date.now();
@@ -139,40 +188,56 @@ function scheduleRebind() {
   }, delay);
 }
 
+function detach({ connectionLost = false } = {}) {
+  const oldPort = port;
+  port = null;
+  connected = false;
+  boundTab = false;
+  bound.token = null;
+  bound.epoch = null;
+  bound.revision = 0;
+  snapshotModel = null;
+  pendingFeature.clear();
+  if (pendingReset) {
+    clearTimeout(pendingReset.timer);
+    pendingReset = null;
+    reset.textContent = L.resetSession;
+    reset.removeAttribute("aria-busy");
+    showFeedback(connectionLost ? L.resetUnconfirmed : "", connectionLost);
+  }
+  reset.disabled = true;
+  model.clear();
+  rowEls.clear();
+  folded = [];
+  lastRowIds = [];
+  historyStartId = null;
+  pageNavigation = false;
+  list.replaceChildren();
+  newItems.hidden = true;
+  oldPort?.disconnect();
+}
+
 async function bindTab() {
+  const generation = ++bindingGeneration;
   const pinned = readPinnedTabId(globalThis.location?.search ?? "");
   let tab = null;
-  if (typeof pinned === "number") {
-    try {
-      tab = await chrome.tabs.get(pinned);
-    } catch {
-      tab = null;
-    }
-  }
-  if (!tab) {
-    try {
+  try {
+    if (typeof pinned === "number") tab = await chrome.tabs.get(pinned);
+    else {
       const win = await chrome.windows.getCurrent();
-      const tabs = await chrome.tabs.query({ active: true, windowId: win.id });
-      tab = tabs[0] ?? null;
-    } catch {
-      tab = null;
+      [tab] = await chrome.tabs.query({ active: true, windowId: win.id });
     }
-  }
-  const isStudio = tab && isStreamYardUrl(tab.url ?? "");
-  if (!isStudio) {
-    port?.disconnect();
-    port = null;
-    boundTab = false;
+  } catch { tab = null; }
+  if (generation !== bindingGeneration) return;
+  if (!tab || !isStreamYardUrl(tab.url ?? "")) {
+    detach();
     setStatus(L.panelOpenStudio);
-    model.clear();
-    rowEls.clear();
-    list.replaceChildren();
-    // Icon click names a tab; retry only while that tab or its URL is not ready yet.
-    if (typeof pinned === "number" && (!tab || !tab.url)) scheduleRebind();
     return;
   }
   if (port && tabId === tab.id) return;
+  detach();
   const ready = await tabHasSession(tab.id);
+  if (generation !== bindingGeneration) return;
   if (!ready) {
     chrome.runtime.sendMessage({ type: "safwa-ensure", tabId: tab.id }, () => {
       void chrome.runtime.lastError;
@@ -181,29 +246,21 @@ async function bindTab() {
     scheduleRebind();
     return;
   }
-  port?.disconnect();
-  // Never leave another studio's actionable list visible.
-  model.clear();
-  rowEls.clear();
-  list.replaceChildren();
-  boundTab = false;
   tabId = tab.id;
   windowId = tab.windowId;
-  port = chrome.tabs.connect(tab.id, { name: PORT_NAME, frameId: 0 });
-  port.onMessage.addListener(onPortMessage);
-  port.onDisconnect.addListener(() => {
+  const nextPort = chrome.tabs.connect(tab.id, { name: PORT_NAME, frameId: 0 });
+  port = nextPort;
+  nextPort.onMessage.addListener((message) => {
+    if (port === nextPort) onPortMessage(message);
+  });
+  nextPort.onDisconnect.addListener(() => {
     void chrome.runtime.lastError;
-    port = null;
-    tabId = null;
-    boundTab = false;
-    bound.token = null;
-    bound.epoch = null;
-    bound.revision = 0;
+    if (port !== nextPort) return;
+    detach({ connectionLost: true });
     setStatus(L.panelDisconnected);
     scheduleRebind();
   });
-  // Cold handshake: the port connection authorizes identity discovery.
-  port.postMessage(makeEnvelope(MESSAGE_TYPES.SUBSCRIBE, { documentToken: null, sessionEpoch: null }));
+  nextPort.postMessage(makeEnvelope(MESSAGE_TYPES.SUBSCRIBE, { documentToken: null, sessionEpoch: null }));
   setStatus(L.panelLoading);
   rebindAttempts = 0;
 }
@@ -227,32 +284,46 @@ function isForThisSession(message) {
 
 function onPortMessage(message) {
   if (!message || message.v !== 2) return;
+  if (message.type === MESSAGE_TYPES.RESET_RESULT) {
+    if (pendingReset?.requestId === message.requestId && message.documentToken === bound.token) {
+      finishReset(message.ok === true);
+    }
+    return;
+  }
   if (message.type !== MESSAGE_TYPES.SNAPSHOT_BEGIN && !isForThisSession(message)) return;
   switch (message.type) {
     case MESSAGE_TYPES.SNAPSHOT_BEGIN:
       if (bound.token && message.documentToken !== bound.token) return;
       bound.token = message.documentToken;
       bound.epoch = message.sessionEpoch;
-      bound.revision = message.revision;
       boundTab = true;
-      model.clear();
-      rowEls.clear();
-      folded = [];
+      connected = false;
+      snapshotModel = { rows: new Map(), revision: message.revision, expected: message.expectedRows };
+      reset.disabled = true;
       break;
     case MESSAGE_TYPES.SNAPSHOT_CHUNK:
-      for (const row of message.rows ?? []) model.set(row.rowId, row);
+      if (!snapshotModel || message.revision !== snapshotModel.revision) return;
+      for (const row of message.rows ?? []) snapshotModel.rows.set(row.rowId, row);
       break;
     case MESSAGE_TYPES.SNAPSHOT_END:
-      bound.revision = message.revision;
-      folded = message.folded ?? [];
-      if (message.rowCount !== model.size) {
+      if (!snapshotModel || message.revision !== snapshotModel.revision ||
+          message.rowCount !== snapshotModel.rows.size || message.rowCount !== snapshotModel.expected) {
         port?.postMessage(makeEnvelope(MESSAGE_TYPES.RESYNC, envelopeFields()));
         return;
       }
+      model.clear();
+      for (const [id, row] of snapshotModel.rows) model.set(id, row);
+      snapshotModel = null;
+      bound.revision = message.revision;
+      folded = message.folded ?? [];
+      connected = true;
+      lastHealthAt = Date.now();
+      reset.disabled = !!pendingReset;
       render();
+      paintEnabledState();
       break;
     case MESSAGE_TYPES.PATCH: {
-      if (message.baseRevision !== bound.revision) {
+      if (snapshotModel || message.baseRevision !== bound.revision || message.revision <= bound.revision) {
         port?.postMessage(makeEnvelope(MESSAGE_TYPES.RESYNC, envelopeFields()));
         return;
       }
@@ -268,11 +339,17 @@ function onPortMessage(message) {
     }
     case MESSAGE_TYPES.HEALTH:
       lastHealthAt = Date.now();
+      connected = boundTab && !snapshotModel;
+      reset.disabled = !connected || !!pendingReset;
       lastHealth = { observer: message.observer ?? "ok", wsState: message.wsState ?? "off" };
+      if (message.settingsError) showFeedback(L.settingsFailed, true, "health");
+      else if (message.llmUnavailable) showFeedback(L.llmUnavailable, true, "health");
+      else if (feedback.dataset.source === "health") showFeedback("");
       enabled = message.enabled !== false;
       masterEl.checked = enabled;
       paintStatus();
       paintEnabledState();
+      render();
       break;
     case MESSAGE_TYPES.RESYNC:
       port?.postMessage(makeEnvelope(MESSAGE_TYPES.SUBSCRIBE, envelopeFields()));
@@ -307,40 +384,52 @@ function paintStatus() {
 
 function paintEnabledState() {
   list.hidden = !enabled || !settings.hidden;
-  paintStatus();
+  if (list.hidden) newItems.hidden = true;
+  if (connected) paintStatus();
 }
 
 /* ------------------------------------------------------------------ render */
 
 function render() {
-  const rows = [...model.values()];
-  const visible = rows.slice(Math.max(0, rows.length - windowCount));
-  const newIds = visible.map((r) => r.rowId);
-  const arrivedNew = lastRowIds.length > 0 && newIds.some((id) => !lastRowIds.includes(id));
+  const rows = [...model.values()].sort((a, b) => a.index - b.index);
   const wasNearEnd = nearEnd();
+  // Freeze a bounded page while reading. New arrivals remain reachable through
+  // the latest button without growing the mounted history indefinitely.
+  if (!pageNavigation && historyStartId === null && !wasNearEnd && lastRowIds.length) {
+    historyStartId = lastRowIds[0];
+  }
+  const pageSize = CONFIG.PANEL.maxMountedRows;
+  if (historyStartId !== null && !model.has(historyStartId)) {
+    historyStartId = lastRowIds.find((id) => model.has(id)) ?? null;
+  }
+  const savedStart = rows.findIndex((row) => row.rowId === historyStartId);
+  const start = savedStart >= 0 ? savedStart : Math.max(0, rows.length - pageSize);
+  if (savedStart < 0) historyStartId = null;
+  const visible = rows.slice(start, start + pageSize);
+  const end = start + visible.length;
+  const newIds = visible.map((r) => r.rowId);
   const prevScroll = list.scrollTop;
-  const prevHeight = list.scrollHeight;
-  const grewWindow = windowCount !== lastWindowCount;
+  const readingAnchor = [...list.children].find((el) => el.dataset.rowId &&
+    el.getBoundingClientRect().bottom > list.getBoundingClientRect().top);
+  const anchorTop = readingAnchor?.getBoundingClientRect().top;
 
   if (rows.length === 0 && folded.length === 0) {
     list.replaceChildren(emptyNode(L.panelWaiting));
+    lastRowIds = [];
+    historyStartId = null;
+    pageNavigation = false;
+    newItems.hidden = true;
     return;
   }
 
-  const frag = document.createDocumentFragment();
-  if (rows.length > windowCount) {
-    const older = document.createElement("button");
-    older.type = "button";
-    older.className = "new-items";
-    older.style.position = "static";
-    older.style.transform = "none";
-    older.style.margin = "8px auto";
-    older.textContent = `${L.panelOlder} (${rows.length - windowCount}+)`;
-    older.addEventListener("click", () => {
-      windowCount = Math.min(WINDOW_CAP, windowCount + CONFIG.PANEL.maxMountedRows);
+  const desired = [];
+  const frag = { append: (el) => desired.push(el) };
+  if (start > 0) {
+    frag.append(historyButton(`${L.panelOlder} (${start})`, () => {
+      historyStartId = rows[Math.max(0, start - pageSize)].rowId;
+      pageNavigation = true;
       render();
-    });
-    frag.append(older);
+    }, "older"));
   }
 
   for (const row of visible) {
@@ -351,7 +440,8 @@ function render() {
       continue;
     }
     const countOpen = !!(existing && existing.querySelector?.("details.count")?.open);
-    const el = renderRow(row, { countOpen });
+    const el = renderRow(row, { countOpen, memberOffset: Number(existing?.querySelector(".count__list")?.dataset.offset || 0) });
+    el.querySelector(".air").disabled ||= !connected || !enabled;
     el.__key = key;
     rowEls.set(row.rowId, el);
     frag.append(el);
@@ -361,36 +451,75 @@ function render() {
     if (!model.has(id) || !visibleIds.has(id)) rowEls.delete(id);
   }
 
+  if (end < rows.length) {
+    frag.append(historyButton(`${L.panelNewer} (${rows.length - end})`, () => {
+      const nextStart = Math.min(start + pageSize, Math.max(0, rows.length - pageSize));
+      historyStartId = nextStart + pageSize >= rows.length ? null : rows[nextStart].rowId;
+      pageNavigation = true;
+      render();
+    }, "newer"));
+  }
+
   if (folded.length > 0) {
     const details = document.createElement("details");
     details.className = "folded";
+    details.open = list.querySelector("details.folded")?.open === true;
     const summary = document.createElement("summary");
     summary.textContent = `${L.panelFolded} (${folded.length})`;
     details.append(summary);
-    for (const item of folded) {
-      const div = document.createElement("div");
-      div.className = "folded__item";
-      div.dir = "auto";
-      div.textContent = `${item.handle} — ${item.displayText}`;
-      details.append(div);
-    }
+    const items = document.createElement("div");
+    items.className = "folded__list";
+    fillPagedItems(items, folded, Number(list.querySelector(".folded__list")?.dataset.offset || 0), "folded__item");
+    details.append(items);
     frag.append(details);
   }
 
-  list.replaceChildren(frag);
+  // Reconcile in place so unchanged cards keep keyboard focus and disclosures.
+  desired.forEach((el, index) => {
+    if (list.children[index] !== el) list.insertBefore(el, list.children[index] ?? null);
+  });
+  while (list.children.length > desired.length) list.lastElementChild.remove();
   lastRowIds = newIds;
 
-  if (wasNearEnd) {
+  if (pageNavigation) {
+    list.scrollTop = historyStartId === null ? list.scrollHeight : 0;
+  } else if (historyStartId === null && wasNearEnd) {
     list.scrollTop = list.scrollHeight;
-  } else if (grewWindow) {
-    // "load older" prepends rows: compensate by the added height.
-    list.scrollTop = prevScroll + (list.scrollHeight - prevHeight);
+  } else if (readingAnchor?.isConnected) {
+    list.scrollTop = prevScroll + readingAnchor.getBoundingClientRect().top - anchorTop;
   } else {
-    // Comments append at the bottom; the viewport must not move.
     list.scrollTop = prevScroll;
-    if (arrivedNew) newItems.hidden = false;
   }
-  lastWindowCount = windowCount;
+  pageNavigation = false;
+  newItems.hidden = !settings.hidden || !enabled || (end >= rows.length && nearEnd());
+}
+
+function historyButton(label, onClick, direction) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "new-items history-page";
+  button.dataset.direction = direction;
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function fillPagedItems(container, items, offset, className) {
+  const size = CONFIG.PANEL.maxMountedRows;
+  const start = Math.max(0, Math.min(offset, Math.max(0, items.length - 1)));
+  container.dataset.offset = start;
+  container.replaceChildren();
+  if (start > 0) container.append(historyButton(L.panelOlder,
+    () => fillPagedItems(container, items, Math.max(0, start - size), className), "older"));
+  for (const item of items.slice(start, start + size)) {
+    const div = document.createElement("div");
+    div.className = className;
+    div.dir = "auto";
+    div.textContent = `${item.handle} - ${item.displayText}`;
+    container.append(div);
+  }
+  if (start + size < items.length) container.append(historyButton(L.panelNewer,
+    () => fillPagedItems(container, items, start + size, className), "newer"));
 }
 
 function emptyNode(text) {
@@ -402,7 +531,9 @@ function emptyNode(text) {
 
 function rowKey(row) {
   return JSON.stringify([
-    row.primary.displayText,
+    row.primary,
+    connected,
+    enabled,
     row.badges,
     row.feature,
     row.shown,
@@ -499,14 +630,8 @@ export function renderRow(row, options = {}) {
     details.append(summary);
     const listEl = document.createElement("div");
     listEl.className = "count__list";
-    for (const member of row.members) {
-      if (member.sourceId === row.primary.sourceId) continue;
-      const item = document.createElement("div");
-      item.className = "count__item";
-      item.dir = "auto";
-      item.textContent = `${member.handle} — ${member.displayText}`;
-      listEl.append(item);
-    }
+    fillPagedItems(listEl, row.members.filter((member) => member.sourceId !== row.primary.sourceId),
+      options.memberOffset || 0, "count__item");
     details.append(listEl);
     body.append(details);
   }
@@ -551,7 +676,10 @@ function fallbackAvatar(handle) {
 /* --------------------------------------------------------------- features */
 
 function requestFeature(row, button) {
-  if (!row.feature.available) return;
+  if (!row.feature.available || !connected || !boundTab || !enabled || !port) {
+    showFeedback(L.featureFindNative, true);
+    return;
+  }
   const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const request = {
     v: 2,
@@ -570,18 +698,22 @@ function requestFeature(row, button) {
   pendingFeature.set(requestId, {
     resolve: (result) => {
       if (result.outcome === "refused") {
-        button.disabled = false;
+        button.disabled = !model.get(row.rowId)?.feature.available || !connected || !enabled;
+        showFeedback(L.featureFindNative, true);
         button.title = L.featureFindNative;
         button.setAttribute("aria-label", L[row.feature.labelKey] ?? L.featureShow);
       } else {
         // Stay disabled until the next projection flips availability.
         button.setAttribute("aria-label", L.featureCheckBroadcast);
+        showFeedback(result.outcome === "unknown" ? L.featureCheckBroadcast : L.featureClicked,
+          result.outcome === "unknown");
       }
     },
   });
   chrome.runtime.sendMessage(request, (result) => {
-    void chrome.runtime.lastError;
+    const error = chrome.runtime.lastError;
     const entry = pendingFeature.get(requestId);
+    if (error && entry) entry.resolve({ outcome: "unknown" });
     if (entry && result) {
       pendingFeature.delete(requestId);
       entry.resolve(result);
@@ -598,8 +730,7 @@ function requestFeature(row, button) {
         makeEnvelope(MESSAGE_TYPES.ACTION_STATUS, { ...envelopeFields(), requestId })
       );
     } catch {
-      port = null;
-      tabId = null;
+      detach({ connectionLost: true });
       scheduleRebind();
     }
     // Keep the entry briefly so a refused ACTION_STATUS can still re-enable.
@@ -610,26 +741,42 @@ function requestFeature(row, button) {
 /* --------------------------------------------------------------- settings */
 
 const SETTING_ROWS = [
-  { key: STORAGE_KEYS.collapseDuplicates, label: L.settingCollapse },
-  { key: STORAGE_KEYS.hideExtras, label: L.settingHideExtra },
-  { key: STORAGE_KEYS.joinContinuations, label: L.settingJoin },
-  { key: STORAGE_KEYS.hideGreetings, label: L.settingHideGreetings },
-  { key: STORAGE_KEYS.llmEnabled, label: L.settingLlm },
+  { key: STORAGE_KEYS.collapseDuplicates, label: L.settingCollapse, help: "settingCollapse" },
+  { key: STORAGE_KEYS.hideExtras, label: L.settingHideExtra, help: "settingHideExtra" },
+  { key: STORAGE_KEYS.joinContinuations, label: L.settingJoin, help: "settingJoin" },
+  { key: STORAGE_KEYS.hideGreetings, label: L.settingHideGreetings, help: "settingHideGreetings" },
+  { key: STORAGE_KEYS.llmEnabled, label: L.settingLlm, help: "settingLlm" },
 ];
 
 async function loadPrefs() {
-  const items = await chrome.storage.local.get(null);
+  const items = await chrome.storage.local.get(Object.values(STORAGE_KEYS));
   enabled = items[STORAGE_KEYS.enabled] !== false;
   masterEl.checked = enabled;
   for (const row of SETTING_ROWS) {
     const input = togglesEl.querySelector(`input[data-key="${row.key}"]`);
     if (input) input.checked = items[row.key] !== false;
   }
+  paintEnabledState();
+}
+
+async function savePreference(input, key) {
+  const value = input.checked;
+  input.disabled = true;
+  try {
+    await chrome.storage.local.set({ [key]: value });
+    showFeedback("");
+  } catch (err) {
+    input.checked = !value;
+    showFeedback(L.settingsFailed, true);
+    console.error("[Ṣafwa] preference save failed", err);
+  } finally {
+    input.disabled = false;
+  }
 }
 
 function renderSettings() {
   masterEl.addEventListener("change", () => {
-    chrome.storage.local.set({ [STORAGE_KEYS.enabled]: masterEl.checked });
+    savePreference(masterEl, STORAGE_KEYS.enabled);
   });
   for (const row of SETTING_ROWS) {
     const wrap = document.createElement("div");
@@ -642,17 +789,43 @@ function renderSettings() {
     const input = document.createElement("input");
     input.type = "checkbox";
     input.dataset.key = row.key;
+    input.setAttribute("aria-label", row.label);
     input.checked = true;
     input.addEventListener("change", () => {
-      chrome.storage.local.set({ [row.key]: input.checked });
+      savePreference(input, row.key);
     });
     const slider = document.createElement("span");
     toggle.append(input, slider);
-    wrap.append(label, toggle);
-    togglesEl.append(wrap);
+    const help = document.createElement("button");
+    help.type = "button";
+    help.className = "setting-help";
+    help.textContent = "؟";
+    help.setAttribute("aria-label", `${L.settingHelp}: ${row.label}`);
+    help.setAttribute("aria-expanded", "false");
+    const explanation = document.createElement("div");
+    explanation.id = `help-${row.key}`;
+    explanation.className = "setting-explanation";
+    explanation.hidden = true;
+    help.setAttribute("aria-controls", explanation.id);
+    for (const [suffix, title] of [["On", L.settingOn], ["Off", L.settingOff]]) {
+      const paragraph = document.createElement("p");
+      const heading = document.createElement("strong");
+      heading.textContent = `${title}: `;
+      const value = L[`${row.help}${suffix}`];
+      paragraph.append(heading, document.createTextNode(Array.isArray(value) ? value.join(" ") : value));
+      explanation.append(paragraph);
+    }
+    help.addEventListener("click", () => {
+      explanation.hidden = !explanation.hidden;
+      help.setAttribute("aria-expanded", String(!explanation.hidden));
+    });
+    wrap.append(label, help, toggle);
+    togglesEl.append(wrap, explanation);
   }
 }
 
 init().catch((err) => {
+  document.getElementById("static-failure").hidden = false;
+  showFeedback(L.panelDisconnected, true);
   console.error("Ṣafwa panel init failed", err);
 });

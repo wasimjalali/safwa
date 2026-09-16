@@ -31,3 +31,9 @@ What is still missing, and exactly what to do:
 2. Confirm each slot shows a real thumbnail (not "Drop icon here", not a stuck progress bar)
 3. Report the status of every required field on the item Status tab
 4. DO NOT click "Submit for review". Stop and report when everything green except submission.
+
+## 2.0.5 release package
+
+Use `Safwa-chrome-webstore-v2.0.5.zip` from the repository root after rebuilding. It includes the sidebar version footer, toggle help and reset feedback. The installed version comes from the manifest. Old ZIPs are historical artifacts.
+
+The runtime audit and its verification limits are recorded in the root README. Update store screenshots to the current sidebar before submitting. Instagram and Facebook Group comments must not be advertised as supported because StreamYard does not receive them.

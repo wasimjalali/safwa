@@ -60,7 +60,7 @@ check("a click does not steal another copy's native node", () => {
 });
 
 check("feature availability follows the live native row, not a stale cache", () => {
-  assert.ok(sessionSrc.includes("liveElementFor(record)"), "projection must use the live match");
+  assert.ok(sessionSrc.includes("liveElementFor(record, index)"), "projection must use the live match");
   const availBlock = sessionSrc.slice(sessionSrc.indexOf("function currentProjection"));
   assert.ok(
     availBlock.includes("anchorOk: !!liveEl?.isConnected"),

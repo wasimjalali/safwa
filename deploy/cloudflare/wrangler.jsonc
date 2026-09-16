@@ -4,5 +4,15 @@
   "compatibility_date": "2026-08-25",
   "ai": {
     "binding": "AI"
-  }
+  },
+  "ratelimits": [
+    {
+      "name": "CLASSIFY_LIMITER",
+      "namespace_id": "2026091605",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ]
 }

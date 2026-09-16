@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ṣafwa — صفوة</title>
+    <title>Ṣafwa - صفوة</title>
     <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
@@ -13,7 +13,7 @@
     <div id="app" hidden>
       <header class="head">
         <div class="head__top">
-          <div class="head__title">صفوة — سوال‌های برنامه زنده</div>
+          <div class="head__title">صفوة - سوال‌های برنامه زنده</div>
           <button id="gear" class="icon-btn" type="button" aria-label="تنظیمات">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="3.1" />
@@ -31,6 +31,7 @@
       </header>
 
       <div id="status" class="status" role="status"></div>
+      <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
 
       <main id="list" class="list uv-scroll" aria-live="polite"></main>
 
@@ -43,8 +44,9 @@
       </section>
 
       <button id="new-items" class="new-items" type="button" hidden>سوال‌های تازه</button>
+      <footer class="footer"><span id="version" class="version"></span></footer>
     </div>
-    <p id="static-failure" class="static-failure" hidden>
+    <p id="static-failure" class="static-failure" role="alert">
       Ṣafwa نتوانست رابط را بارگذاری کند؛ از ستون نظرات StreamYard استفاده کنید.
     </p>
     <script type="module" src="panel.js"></script>

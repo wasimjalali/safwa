@@ -1,209 +1,81 @@
-# Ṣafwa (صفوة) - Live Q&A Filter for StreamYard
+# Ṣafwa (صفوة)
 
-**Clean up your live stream's Q&A comments as they come in (Persian only).**
+A Chrome extension that turns StreamYard's live Dari/Persian comments into a readable question queue in Chrome's side panel.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-![Chrome Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
-![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)
+## Use
 
-**Ṣafwa** (Arabic/Quranic: *the clear essence, the refined best part after removing the redundant*) is a Chrome (Manifest V3) extension that cleans the live comment feed during a StreamYard Q&A session. It is built for **Dari / Persian** comments: the audience asks questions in Dari, and the teacher answers them orally. It runs while you stream and does three things in real time:
+1. Install the extension, or load this folder unpacked from `chrome://extensions`.
+2. Open a StreamYard studio and keep its Comments tab open at the live edge.
+3. Click the Ṣafwa toolbar icon to open the side panel.
+4. Use the display button beside a question to request a native StreamYard show/hide action. Check the broadcast output. If the original comment is unavailable, use StreamYard's own controls.
 
-1. Collapses repeated questions into a single entry with a count.
-2. Merges a question that got split across two comments back into one block.
-3. Flags when one person asks a second, separate question.
+The master switch pauses new capture and cancels pending AI requests. Existing session history stays in memory. Switching it back on reads the currently mounted comments. The gear opens settings. Each question-mark button explains its toggle. The installed version appears in the footer.
 
-You keep using StreamYard exactly as before. The extension only changes how comments look, so you still feature questions through StreamYard's native controls.
+## Five settings
 
-## The one hard constraint: there is no API
+| Setting | On | Off |
+| --- | --- | --- |
+| Collapse repeated questions | Certain or AI-confirmed copies share one question and count. | Copies remain separate. |
+| Hide extra questions | AI-confirmed additional questions from the same platform/handle move to the folded list. | They remain visible with an ordinal badge. |
+| Join continuations | The original and one continuation appear together. | Messages remain separate. Other enabled filters still apply. |
+| Fold greetings | Greetings, thanks and blessings without a question move to the folded list. | They remain visible. |
+| Compare meaning with AI | Ambiguous text and recent question text are sent for classification. | New text is not sent; uncertain questions stay visible. |
 
-StreamYard has no public API, no comment webhooks, and no SDK. The only way to read the comment feed is to read the page's DOM in the browser. Everything here is built on that single fact.
+Possible duplicates stay visible until confirmed. AI errors, timeouts and rate limits leave uncertain comments visible. All folded comments remain readable through the folded list or duplicate disclosures.
 
-Because we read the page instead of an API, a StreamYard layout change can break comment reading. To contain that, **every runtime StreamYard-specific selector lives in exactly two files: `src/config.js` and `src/dom.js`.** Sanitized evidence from the confirmed live DOM is retained in `captures/streamyard-live-dom.json`, but runtime code never imports it. If selectors stop matching, the extension does nothing visible and logs a clear console warning. It never corrupts the feed.
+Reset is scoped to the connected studio tab. It clears matching history and pending AI work, then rereads comments currently mounted in StreamYard. Comments in StreamYard are never deleted. The reset button shows progress and a success or failure message.
 
-## Install (load unpacked)
+## Comment-source support
 
-1. Open `chrome://extensions` in Chrome.
-2. Turn on **Developer mode** (top right).
-3. Click **Load unpacked** and select this project folder (the one with `manifest.json`).
-4. Open a StreamYard studio (`https://streamyard.com/...`) with the comments panel visible.
-5. Open DevTools (`Cmd+Option+I` on Mac) and check the Console. You should see lines tagged `[Ṣafwa]`.
+The extension reads StreamYard's common comment layout. It doesn't require a particular social handle or link identities across platforms. Exact text can be deduplicated across platforms; the per-person rule uses the platform and normalized displayed handle.
 
-Click the Ṣafwa icon in the toolbar to open the popup: the mark, صفوة, and one switch, with a one-line hint of what the filter is doing. Off restores StreamYard's native feed exactly. Everything else is configured in `src/config.js`; there is no settings screen in v1.
+Actual availability depends on what StreamYard receives:
 
-To see that pair locally: `npm run demo`, then open `http://127.0.0.1:8000/test/teacher.html`.
+- YouTube, Facebook Pages/Profiles and other supported comment destinations can use the common DOM path.
+- Instagram, Facebook Groups and custom RTMP destinations do not currently supply comments to StreamYard. Ṣafwa cannot retrieve comments that never reach the studio.
+- YouTube private streams don't support comments. Facebook Profile streams need suitable public visibility and permissions.
+- Unknown platform labels receive a neutral icon and remain readable.
 
-## Replaying a real broadcast
+These platform limits come from [StreamYard's destination matrix](https://support.streamyard.com/hc/en-us/articles/4415539271700-StreamYard-s-Supported-Platforms-Destinations) and [Facebook comment guidance](https://support.streamyard.com/hc/en-us/articles/360043726571-I-can-t-see-comments-during-my-Facebook-Stream).
 
-The strongest test is the teacher's own past session. The audience comments on YouTube, and a YouTube VOD keeps the full live chat - the same comments StreamYard pulled into the studio during the broadcast. Replaying them through the real pipeline (with their real gaps) shows exactly what the teacher would have seen:
+DOM-only capture cannot recover comments that StreamYard never mounts while its Comments tab is closed or scrolled away. Displayed names are not stable account IDs, so identical names on one platform can be indistinguishable. Refreshing or leaving the studio loses session history. StreamYard layout changes can require selector updates. Never refresh a live studio just to troubleshoot Ṣafwa.
 
-```
-yt-dlp --skip-download --write-subs --sub-langs live_chat --sub-format json3 \
-       -o chat.%(ext)s "<YOUTUBE_VOD_URL>"
-node test/convert-live-chat.js chat.live_chat.json test/fixtures/replay-<id>.json
-npm run demo   # then open http://127.0.0.1:8000/test/replay.html
-```
+## Architecture
 
-- `test/replay.html` replays the comments at x1 to instant speed, with the real badges and a live decision tally.
-- `node test/replay-analysis.js [fixture]` prints the same session as numbers: what was kept, joined, collapsed, dimmed, hidden - with timestamps, for tuning.
+- `src/session.js` owns capture, session state, AI scheduling and panel synchronization in the content script.
+- `normalize.js`, `state.js`, `dedup.js` and `grouping.js` form the pure matching core. Pipeline order is continuation, duplicate, then new/extra question.
+- `src/config.js` and `src/dom.js` contain all runtime StreamYard selectors.
+- `panel/` renders the question queue, settings and feedback. It never modifies StreamYard's layout.
+- `src/sw.js` activates the panel and validates native-action routing. No matching state depends on service-worker lifetime.
+- `deploy/cloudflare/` contains the existing classification Worker. It accepts only the extension's bounded task prompts, limits requests per IP and returns classification JSON. It doesn't return arbitrary model text.
+- `src/llm-prompts.js` shares the task prompts between the extension and Worker, preserving existing clients.
 
-Five real sessions (425 comments over ~5 hours) are committed at `test/fixtures/` and are what tuned the current defaults: the continuation window is 60s (at 25s, three real continuation fragments were hidden as second questions), `ادامه`-announced fragments join past any window (`EXPLICIT_CONTINUATION_MS`), the greeting `اسلام علیکم ورحمت الله استاد` and the title `مفتی` strip before matching, and in-window extras dim instead of vanish (`DIM_IN_WINDOW_EXTRAS: true`).
+The production configuration is `PANEL_MODE: "sidebar"`, `WS_MODE: "off"`. WebSocket code is experimental and requires the evidence gates in [the v2 specification](specs/safwa-v2-architecture.md). Production ZIPs exclude the WebSocket hooks and the legacy inline UI. Native interaction is limited to explicit, validated teacher clicks and cleanup of old Ṣafwa inline marks.
 
-## Project layout
+## Verification and packaging
 
-```
-manifest.json          MV3 manifest, content script scoped to streamyard.com
-captures/              sanitized, inert live-DOM evidence for maintenance
-src/
-  content.js           entry point: bootstraps the core, runs the MutationObserver + pipeline
-  dom.js               ALL StreamYard selectors + comment extraction (the only fragile layer)
-  normalize.js         text normalization (matchKey + displayText)
-  dedup.js             exact + fuzzy duplicate detection
-  grouping.js          continuation detection, one-question-per-person, pipeline order, LLM escalation flags
-  state.js             handle map, signature store, recent buffer
-  ui.js                in-place annotation, badges, collapsing
-  llm-classifier.js    async LLM semantic-duplicate classifier (Cloudflare Gemma 4)
-  config.js            all thresholds, lists, feature flags, LLM settings, AND the StreamYard selectors
-popup/
-  popup.html|css|js    toolbar popup: mark, name, on/off switch
-fonts/
-  Vazirmatn-Variable   bundled Persian UI font (OFL), used by badges, popup and demo
-styles.css             badge + dim styles, @font-face, on/off CSS gating
-test/
-  mock-comments.js     scripted comment streams for testing without StreamYard
-  run-tests.js         Node test runner for the matching core (44 tests)
-  demo.html|js         visual simulation harness (npm run demo)
-  teacher.html|js      what the teacher sees: popup + annotated comments column
-  replay.html|js       replay a real broadcast's live chat through the pipeline
-  convert-live-chat.js yt-dlp live-chat json3 -> replay fixture converter
-  replay-analysis.js   the same replay as numbers: kept/joined/dimmed/hidden
-  fixtures/            committed real-session replay + raw chat dump
-deploy/
-  cloudflare/          live Gemma 4 Worker (Workers AI binding)
-  Dockerfile           leftover vLLM image (not the live path)
-  README.md            leftover AWS notes (not the live path)
-```
-
-## The processing pipeline (order is fixed)
-
-For each new comment: **extract → normalize → continuation check → duplicate check → new/extra-question check → render.**
-
-The order is not negotiable. Continuation is checked first, before duplicate and before the one-question rule, so a split question is never wrongly flagged as a second question or wrongly collapsed as a duplicate. See the spec, Section 6.
-
-Cost asymmetry we design around: wrongly merging two questions just gives you a slightly longer block to read. Wrongly hiding a real question destroys it. So inside the time window, ambiguity always resolves toward merging, never toward hiding.
-
-## Human in the loop (v1)
-
-Only high-confidence **exact** duplicates auto-collapse. A confirmed second question from the same person is also hidden by default (`HIDE_EXTRA_QUESTIONS`), because the teacher asked for a strict one-question-per-person feed; flip the flag to keep them visible-but-dimmed, or set `DIM_IN_WINDOW_EXTRAS: true` to keep just the ambiguous in-window ones visible. Everything else that is ambiguous (continuation merges, fuzzy near-duplicates) is marked visually, never hidden. Hiding is reversible: the data stays in state, and the popup OFF switch restores StreamYard's full native feed instantly. You stay the final judge.
-
-## Testing the matching core
-
-The matching logic (normalize, dedup, grouping, state) has zero dependency on StreamYard or the browser DOM. It is proven against scripted streams in `test/mock-comments.js` before it ever touches a real page.
-
-```
+```sh
 npm test
+npm run build:manifest
 ```
 
-## Language: Dari / Persian
+This is a dependency-free JavaScript project. TypeScript and lint are not configured. Tests cover the matching core, recorded WebSocket fixtures, admission, protocol, native-click refusals, rendering, session lifecycle, asynchronous AI races and Worker validation. The package version is the manifest builder's source of truth.
 
-Comments are read as Dari/Persian (the two share one script, so both work). Before matching, text is folded so that the same question typed different ways still counts as the same question:
+A store ZIP contains only `manifest.json`, the sidebar, required runtime modules, icons and the bundled font/license. Never include source captures, test fixtures, backend files, mockups, older ZIPs or local screenshots. The production package must exclude `ws-main.js`, `ws-bridge.js`, `content-legacy.js` and `ui.js`.
 
-- Arabic vs Persian letters are unified: `ي → ی`, `ك → ک`, alef and hamza forms (`أ إ آ ؤ ئ ة ۀ`) folded, standalone hamza dropped.
-- Vowel marks (harakat), the tatweel stretch (`ـ`), and the zero-width non-joiner (so `می‌روم` = `میروم`) are stripped.
-- Persian `۰۱۲۳` and Arabic-Indic `٠١٢٣` digits fold to `0123`.
-- Leading greetings/honorifics (`سلام`, `سلام علیکم`, `استاد`, `شیخ`, `مولوی`, `صاحب`, ...) are stripped for matching only, never from what's shown.
-- The Persian question mark `؟` and comma `،` are understood by the continuation logic.
-- Handles are folded the same way for identity (no honorific stripping), so `کریم` typed on an Arabic keyboard (`كريم`) or `Ahmad` vs `ahmad` count as the same person for the one-question rule.
+For the Worker, use the installed Wrangler CLI from `deploy/cloudflare` and validate with `wrangler deploy --dry-run`. Its `CLASSIFY_LIMITER` binding allows 120 classification requests per minute per IP at each Cloudflare location. This is abuse mitigation, not authentication or a global spending cap. Shared-network users share that limit; excess requests degrade to local filtering. No paid tier or new database is required by these source changes.
 
-**To change wording or word lists**, edit `src/config.js`:
-- `LABELS` - the four Dari badge texts.
-- `HONORIFICS_TO_STRIP` - greetings/titles peeled off the front (written in folded Persian: `ک` not `ك`, `ی` not `ي`).
-- `CONNECTOR_WORDS` - Persian words that signal a continuation.
+## 2.0.5 audit
 
-The badges render right-to-left. Counts show Western digits by default for legibility at badge size; set `USE_PERSIAN_DIGITS_IN_UI: true` for Persian digits.
+- Fixed uncertain duplicates being folded before confirmation.
+- Fixed duplicate-count inflation when identical comments were revisited or remounted.
+- Fixed stale AI decisions, replacement-review scheduling and old review jobs surviving reset.
+- Fixed saved-setting startup races and full recovery after temporary storage failures. Master-off stops capture and AI work.
+- Fixed stale panel bindings and partial snapshots; published lists update atomically.
+- Fixed inactive native controls staying available after removal or remount.
+- Fixed Persian/Arabic continuation cues and honorific matching, plus question-slot accounting after a duplicate first question.
+- Fixed scrolling ownership, preserved reading position and replaced the 1,200-question history dead end with bounded 200-question pages. All captured history remains reachable.
+- Added five settings explanations, visible errors, reset acknowledgement and a manifest-backed version footer.
+- Hardened the AI endpoint against arbitrary prompts, oversized input, unrestricted browser origins and bursts of requests.
 
-## Tuning (Phase 6)
-
-Every live-show toggle lives in the popup. Engineer knobs still live in `src/config.js`. Tune those against a real or recorded session. Symptom to knob:
-
-| You see... | Turn this knob |
-| --- | --- |
-| Real continuations getting flagged as a 2nd question | Raise `CONTINUATION_WINDOW_MS` (give the second fragment more time), or add the connector word you keep seeing to `CONNECTOR_WORDS`. |
-| Two genuinely separate questions getting merged | Lower `CONTINUATION_WINDOW_MS`. Remember the cost asymmetry: a wrong merge is cheap, so lean conservative here. |
-| Obvious repeats not collapsing | Lower `FUZZY_THRESHOLD` (e.g. 0.85 to 0.80). Watch for false merges as you go down. |
-| Different questions wrongly called duplicates | Raise `FUZZY_THRESHOLD`, or raise `FUZZY_LENGTH_RATIO` so a short question can't match a long one. |
-| Greetings/honorifics splitting otherwise-identical questions | Add the word/phrase to `HONORIFICS_TO_STRIP`. |
-| Very short repeats ("when?", "link?") slipping through | Set `ENABLE_LEVENSHTEIN_SHORT: true` and tune `LEVENSHTEIN_THRESHOLD`. |
-| Studio feels laggy under heavy volume | Lower `DEDUP_BUFFER_SIZE`. |
-
-`AUTO_HIDE_ANYTHING_AMBIGUOUS` must stay `false` in v1.
-
-## Out of scope for v1
-
-- ~~Semantic deduplication (two people asking the same thing in totally different words). Needs an LLM/embedding call. Deferred to v2.~~ **Added in v2 (see below).**
-- Cross-platform identity linking. "Ahmad" on YouTube and "Ahmad" on Facebook cannot be reliably confirmed as the same person. The one-question rule applies within the same platform and handle only.
-- Any auto-hiding of ambiguous cases. Marking only.
-- Engineer knobs (windows, thresholds, endpoints). Teacher settings are the four popup toggles plus session reset.
-
-## v2: LLM Semantic Layer (combo architecture)
-
-The regex pipeline handles 80-90% of comments instantly. Its one gap is **semantic deduplication**: two people asking the same question in completely different words with zero shared tokens.
-
-v2 adds Gemma 4 (Cloudflare Workers AI) as a second opinion for exactly these cases. The architecture is a **combo**, not LLM-alone:
-
-```
-New comment -> regex pipeline (instant)
-  -> High confidence? -> act immediately
-  -> Ambiguous (might be semantic dup)? -> async Gemma 4 call (~300ms p50)
-     -> LLM says "duplicate" -> dim + badge (never hide)
-     -> LLM unavailable or says "primary" -> regex decision stands
-```
-
-### What changed
-
-- **`src/llm-classifier.js`**: calls a Cloudflare Worker that runs Gemma 4 26B. Uses `fetch()` with an 8s timeout. Falls back to the regex decision on any failure.
-- **`src/grouping.js`**: `processComment` now sets `needsLlmReview: true` on "primary" decisions when there are prior questions to compare against. The pipeline order and all existing decisions are unchanged.
-- **`src/content.js`**: after rendering the regex decision, if `needsLlmReview` is true, asynchronously calls Gemma 4. If it says "duplicate", re-annotates the node (dim + the same "maybe duplicate" badge the regex uses). Never hides.
-- **`src/config.js`**: `LLM_ENABLED`, `LLM_ENDPOINT`, `LLM_MODEL`, `LLM_TIMEOUT_MS`, `LLM_MAX_CONTEXT_COMMENTS`.
-- **`styles.css`**: `.safwa-badge--semantic` shares the quiet duplicate treatment.
-- **`manifest.json`**: `host_permissions` includes `https://*.workers.dev/*` for the Worker.
-- **`deploy/cloudflare/`**: the live Worker. The API token stays in Wrangler, not in the Chrome package.
-
-### What did NOT change
-
-- The regex pipeline still runs first and handles all high-confidence cases instantly.
-- Only exact duplicates auto-collapse. LLM-flagged semantic dups are dimmed + badged, never hidden.
-- `npm test` is 44/44 for the matching core, plus late-panel retry, virtualized-row, duplicate-anchor, stale-LLM and visible-extra safety regressions. LLM escalation flags are covered.
-- `LLM_ENABLED: false` reverts to pure v1 behavior.
-
-### Self-hosting (data sovereignty)
-
-The live LLM is **Gemma 4 26B** on Cloudflare Workers AI (`@cf/google/gemma-4-26b-a4b-it`). The extension talks to the `safwa-llm` Worker in `deploy/cloudflare` so the API token never sits in the Chrome package. Deploy with `wrangler deploy` from that folder.
-
-## Build status
-
-This project is built in phases (spec Section 14). Current status:
-
-- [x] Phase 1: Skeleton (manifest + content script logging on streamyard.com)
-- [x] Phase 2: DOM selectors confirmed against a live StreamYard comment feed, hardened at boot (attach only to a container that holds comment rows)
-- [x] Phase 3: Matching core, proven on mocks (`npm test`: 44/44, acceptance criteria 1-5)
-- [x] Phase 4: Core wired to the live DOM (observer, pipeline, fail-safe, late-panel retry and virtualized-row handling)
-- [x] Phase 5: UI layer (in-place annotation with confidence tiers)
-- [x] Phase 6: Tuning playbook + centralized knobs ready. Live threshold tuning needs a real session (see Tuning above).
-- [x] Phase 7: LLM semantic layer (combo architecture). Gemma 4 26B on Cloudflare Workers AI. Dari eval 68/68.
-- [x] Dari/Persian localization: script normalization, Dari word lists + labels, RTL UI, proven on Dari fixtures (`npm test`)
-- [x] Brand: name **Ṣafwa**, Kufic ṣād mark (`icons/`, master at `icons/logo.svg`)
-- [x] Popup: 56px bar, mark + name + on/off (persisted in `chrome.storage.local`; off restores the native feed exactly)
-- [x] Bundled Vazirmatn variable font (OFL) for crisp Persian rendering in badges, popup and demo
-
-### To go fully live
-
-The build is complete and the logic is proven. The extension ships **enabled**: `SELECTORS.CONFIRMED` is `true`, and boot-time discovery only attaches to a container that actually holds comment rows. The selectors were confirmed against a live studio. If StreamYard's layout changes, the extension logs one clear `[Ṣafwa]` warning, keeps checking safely and leaves the native feed untouched.
-
-Live verification for each release:
-
-1. Load the release build, open a live studio and confirm the Console reports `[Ṣafwa] comments container found`.
-2. Tune thresholds against a real or recorded session using the table above.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+Verification includes controlled session tests, recorded fixtures, an actual unpacked-extension check with synthetic StreamYard comments and real-browser panel checks at 360px, 390px and 1440px with long text, keyboard focus, settings failures, reset failures and reading-position checks. These are not a live multi-platform broadcast rehearsal. A logged-in StreamYard studio was unavailable during this audit; broadcast output, current native selectors and comment coverage while scrolling must still be checked in a disposable rehearsal before public launch.

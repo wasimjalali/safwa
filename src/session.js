@@ -61,7 +61,6 @@ export function startSession(deps) {
   let health = healthMod.createHealth(config);
   let wsState = config.WS_MODE === "off" ? "off" : "starting";
   let bridgeHandshakeSeen = false;
-  let rebuildEpoch = 0;
   const lastQueueDroppedByKey = new Map();
   let masterEnabled = true;
   let lastHref = location.origin + location.pathname;
@@ -71,6 +70,7 @@ export function startSession(deps) {
   const objectSource = new WeakMap();
   const anchors = new Map();
   const occurrenceRegistry = new Map(); // fingerprint -> { sourceId, ref: WeakRef<node> }
+  const nodeSources = new WeakMap();
   const receipts = new Map();
   const ports = new Set();
   let publishTimer = null;
@@ -83,6 +83,10 @@ export function startSession(deps) {
   let watchdog = null;
   let attempts = 0;
   let scheduled = false;
+  let settingsError = false;
+  let settingsRecovery = false;
+  let nativeReadWarned = false;
+  const changedSettings = {};
   const pending = new Set();
 
   try {
@@ -111,7 +115,6 @@ export function startSession(deps) {
     // Restricted pages have no message bus; the panel simply never connects.
   }
 
-  start();
 
   /* ------------------------------------------------------------------ boot */
 
@@ -124,15 +127,36 @@ export function startSession(deps) {
       chrome.storage.local
         .get(null)
         .then((items) => {
-          applyStoredSettings(config, readStoredSettings(items));
-          masterEnabled = items[STORAGE_KEYS.enabled] !== false;
+          const current = { ...items, ...changedSettings };
+          settingsError = false;
+          applyStoredSettings(config, readStoredSettings(current));
+          masterEnabled = current[STORAGE_KEYS.enabled] !== false;
           tryFind();
         })
-        .catch(() => tryFind());
+        .catch((err) => {
+          settingsError = true;
+          masterEnabled = false;
+          console.error(`${TAG} settings unavailable; filtering paused.`, err);
+          tryFind();
+        });
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== "local") return;
+        for (const key of Object.values(STORAGE_KEYS)) {
+          if (key in changes) changedSettings[key] = changes[key].newValue;
+        }
+        if (settingsError) {
+          recoverSettings();
+          return;
+        }
         if (STORAGE_KEYS.enabled in changes) {
+          settingsRevision += 1;
           masterEnabled = changes[STORAGE_KEYS.enabled].newValue !== false;
+          cancelLlm();
+          if (masterEnabled && container?.isConnected) {
+            for (const node of dom.collectCommentNodes(container)) pending.add(node);
+            schedule();
+          }
+          publish(false);
           publishHealth();
         }
         if (STORAGE_KEYS.resetAt in changes) {
@@ -150,16 +174,19 @@ export function startSession(deps) {
         ];
         if (!keys.some((key) => key in changes)) return;
         settingsRevision += 1;
-        chrome.storage.local
-          .get(null)
-          .then((items) => {
-            applyStoredSettings(config, readStoredSettings(items));
-            rebuildFromRecords();
-            publish(true);
-          })
-          .catch(() => {});
+        cancelLlm();
+        const fields = ["AUTO_COLLAPSE_EXACT_DUPLICATES", "HIDE_CONFIRMED_EXTRAS",
+          "JOIN_CONTINUATIONS", "LLM_ENABLED", "HIDE_GREETINGS"];
+        keys.forEach((key, i) => {
+          if (key in changes) config[fields[i]] = changes[key].newValue !== false;
+        });
+        rebuildFromRecords();
+        publish(true);
       });
-    } catch {
+    } catch (err) {
+      settingsError = true;
+      masterEnabled = false;
+      console.error(`${TAG} settings unavailable; filtering paused.`, err);
       tryFind();
     }
     startWs();
@@ -177,12 +204,44 @@ export function startSession(deps) {
     }, config.PANEL.healthIntervalMs);
   }
 
+  async function recoverSettings() {
+    if (settingsRecovery) return;
+    settingsRecovery = true;
+    try {
+      // A partial storage event cannot recover preferences that failed to load.
+      // Reread all settings before allowing capture or AI to resume.
+      const items = await chrome.storage.local.get(null);
+      const current = { ...items, ...changedSettings };
+      applyStoredSettings(config, readStoredSettings(current));
+      masterEnabled = current[STORAGE_KEYS.enabled] !== false;
+      settingsError = false;
+      settingsRevision += 1;
+      cancelLlm();
+      rebuildFromRecords();
+      if (masterEnabled && container?.isConnected) {
+        for (const node of dom.collectCommentNodes(container)) pending.add(node);
+        schedule();
+      }
+      publish(true);
+      publishHealth();
+    } catch (err) {
+      settingsError = true;
+      masterEnabled = false;
+      cancelLlm();
+      publishHealth();
+      console.error(`${TAG} settings still unavailable; filtering remains paused.`, err);
+    } finally {
+      settingsRecovery = false;
+    }
+  }
+
   const ROWS_REQUIRED_UNTIL = Math.floor(CONTAINER_POLL_MAX * 0.7);
 
   function tryFind() {
     const href = location.origin + location.pathname;
     if (href !== lastHref) {
       lastHref = href;
+      resetSession({ reseed: false });
       attempts = 0;
     }
     const requireRows = attempts < ROWS_REQUIRED_UNTIL;
@@ -228,7 +287,8 @@ export function startSession(deps) {
       }
       schedule();
     });
-    observer.observe(container, { childList: true, subtree: true, characterData: true });
+    observer.observe(container, { childList: true, subtree: true, characterData: true,
+      attributes: true, attributeFilter: ["disabled", "aria-pressed", "aria-label", "src", "alt"] });
 
     if (watchdog) clearInterval(watchdog);
     watchdog = setInterval(() => {
@@ -236,6 +296,12 @@ export function startSession(deps) {
         lastHref = location.origin + location.pathname;
         console.log(`${TAG} studio route changed; starting a fresh session.`);
         resetSession({ reseed: false });
+        observer?.disconnect();
+        container = null;
+        clearInterval(watchdog);
+        watchdog = null;
+        attempts = 0;
+        tryFind();
         return;
       }
       const withRows = dom.findCommentContainer(document, { requireRows: true });
@@ -243,12 +309,16 @@ export function startSession(deps) {
         attach(withRows);
         return;
       }
-      if (container?.isConnected) return;
+      if (container?.isConnected) {
+        publish(false);
+        return;
+      }
       clearInterval(watchdog);
       watchdog = null;
       observer?.disconnect();
       pending.clear();
       container = null;
+      publish(false);
       console.warn(`${TAG} comments container left the DOM; re-attaching (state preserved).`);
       attempts = 0;
       tryFind();
@@ -266,6 +336,12 @@ export function startSession(deps) {
     scheduled = false;
     const nodes = [...pending];
     pending.clear();
+    // Release detached nodes even when capture is paused.
+    for (const anchor of anchors.values()) {
+      if (!anchor.el?.isConnected) anchor.el = null;
+    }
+    if (!masterEnabled) { publish(false); return; }
+    if (location.origin + location.pathname !== lastHref) return;
     for (const node of nodes) {
       try {
         if (!node.isConnected) continue;
@@ -274,6 +350,8 @@ export function startSession(deps) {
         console.warn(`${TAG} error processing a comment; skipping it.`, err);
       }
     }
+    // Remounts can change native-action availability without new admission.
+    publish(false);
   }
 
   function fingerprintOf(comment) {
@@ -295,7 +373,28 @@ export function startSession(deps) {
     if (!comment) return;
     if (admissionMod.isStreamYardSampleComment(comment)) return;
     const fp = fingerprintOf(comment);
-    const entry = occurrenceRegistry.get(fp);
+    const known = nodeSources.get(node);
+    if (known?.epoch === sessionEpoch && known.fp === fp && admission.getRecord(known.sourceId)) {
+      const record = admission.getRecord(known.sourceId);
+      record.avatarUrl = comment.avatar || record.avatarUrl;
+      const anchor = anchors.get(known.sourceId);
+      if (anchor) anchor.el = node;
+      return;
+    }
+    let entry = occurrenceRegistry.get(fp);
+    // More than one occurrence may share a fingerprint. Prefer a detached
+    // occurrence for a remount before treating it as a new viewer submission.
+    if (entry?.ref?.deref?.() !== node) {
+      for (const [sourceId, anchor] of anchors) {
+        if (anchor.fingerprint === fp && (!anchor.el?.isConnected || holderRecycled(anchor.el, fp))) {
+          entry = { sourceId, ref: new WeakRef(node) };
+          occurrenceRegistry.set(fp, entry);
+          anchor.el = node;
+          nodeSources.set(node, { sourceId, fp, epoch: sessionEpoch });
+          return;
+        }
+      }
+    }
     const holder = entry?.ref?.deref?.() ?? null;
 
     if (entry && holder === node) return;
@@ -308,6 +407,7 @@ export function startSession(deps) {
       if (anchor) anchor.el = node;
       const record = admission.getRecord(entry.sourceId);
       if (record) record.domAnchor = true;
+      nodeSources.set(node, { sourceId: entry.sourceId, fp, epoch: sessionEpoch });
       return;
     }
 
@@ -323,6 +423,7 @@ export function startSession(deps) {
       avatar: comment.avatar || "",
     };
     const { sourceId, isNew } = admission.admitDom(plain, { generation: 0 });
+    nodeSources.set(node, { sourceId, fp, epoch: sessionEpoch });
     if (!isNew) {
       // Delivery identity says this is a repeat; re-anchor only.
       const anchor = anchors.get(sourceId);
@@ -378,7 +479,7 @@ export function startSession(deps) {
       handle: plain.handle,
       platform: plain.platform,
       displayText: plain.displayText,
-      timestamp: plain.timestamp,
+      timestamp: admission.getRecord(sourceId).admittedAt,
     };
     objectSource.set(copy, sourceId);
     const decision = grouping.processComment(copy, state, config);
@@ -431,20 +532,43 @@ export function startSession(deps) {
   const LLM_FAIL_WINDOW_MS = 60000;
   const LLM_PAUSE_MS = 60000;
   const llmQueue = [];
+  const llmJobs = new Map();
   let llmInFlight = 0;
   let llmFailures = [];
   let llmPausedUntil = 0;
 
+  function cancelLlm() {
+    llmQueue.length = 0;
+    for (const job of llmJobs.values()) job.controller.abort();
+    llmJobs.clear();
+  }
+
+  function reviewKey(comment, decision) {
+    return JSON.stringify([comment.displayText,
+      llm.llmContextFromDecision(comment, decision), decision.recentQuestions]);
+  }
+
   function scheduleLlm(comment, decision, sourceId) {
-    llmQueue.push({
+    if (!masterEnabled || !config.LLM_ENABLED || llmJobs.has(sourceId)) return;
+    const admittedAt = admission.getRecord(sourceId)?.admittedAt;
+    if (Date.now() - admittedAt > LLM_ADMISSION_TTL_MS) return;
+    const job = {
       comment,
       decision,
       sourceId,
-      admittedAt: admission.getRecord(sourceId)?.admittedAt ?? Date.now(),
+      admittedAt,
+      sessionEpoch,
+      contextKey: reviewKey(comment, decision),
+      context: llm.llmContextFromDecision(comment, decision),
+      controller: new AbortController(),
       settingsRevision,
-      rebuildEpoch,
-    });
-    if (llmQueue.length > LLM_QUEUE_MAX) llmQueue.splice(0, llmQueue.length - LLM_QUEUE_MAX);
+    };
+    llmJobs.set(sourceId, job);
+    llmQueue.push(job);
+    if (llmQueue.length > LLM_QUEUE_MAX) {
+      const dropped = llmQueue.shift();
+      llmJobs.delete(dropped.sourceId);
+    }
     drainLlm();
   }
 
@@ -452,9 +576,14 @@ export function startSession(deps) {
     if (Date.now() < llmPausedUntil) return;
     while (llmInFlight < LLM_MAX_IN_FLIGHT && llmQueue.length > 0) {
       const job = llmQueue.shift();
-      if (Date.now() - job.admittedAt > LLM_ADMISSION_TTL_MS) continue;
+      if (job.sessionEpoch !== sessionEpoch || job.controller.signal.aborted ||
+          Date.now() - job.admittedAt > LLM_ADMISSION_TTL_MS) {
+        if (llmJobs.get(job.sourceId) === job) llmJobs.delete(job.sourceId);
+        continue;
+      }
       llmInFlight += 1;
       runLlmJob(job).finally(() => {
+        if (llmJobs.get(job.sourceId) === job) llmJobs.delete(job.sourceId);
         llmInFlight -= 1;
         drainLlm();
       });
@@ -465,9 +594,8 @@ export function startSession(deps) {
     const { comment, decision, sourceId } = job;
     const guard = {
       documentToken,
-      sessionEpoch,
+      sessionEpoch: job.sessionEpoch,
       settingsRevision: job.settingsRevision,
-      rebuildEpoch: job.rebuildEpoch,
       sourceId,
       contentRevision: admission.getRecord(sourceId)?.admissionSeq ?? 0,
       contentText: comment.displayText,
@@ -477,8 +605,9 @@ export function startSession(deps) {
         comment,
         decision.recentQuestions,
         config,
-        llm.llmContextFromDecision(comment, decision)
+        { ...job.context, signal: job.controller.signal }
       );
+      if (job.controller.signal.aborted || !masterEnabled || !config.LLM_ENABLED) return;
       llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
       if (!result) {
         if (config.LLM_ENABLED) {
@@ -495,23 +624,16 @@ export function startSession(deps) {
       const record = admission.getRecord(sourceId);
       if (!record || record.admissionSeq !== guard.contentRevision) return;
       if (record.displayText !== guard.contentText) return;
-      llmOutcomes.set(sourceId, result);
-      if (guard.settingsRevision !== settingsRevision || guard.rebuildEpoch !== rebuildEpoch) {
-        rebuildFromRecords();
-        publish(true);
-        return;
-      }
-      const next = grouping.applyLlmOverride(decision, result, state, config);
-      if (!next || next === decision) return;
-      storeDecision(sourceId, next);
-      for (const extra of next.alsoRender ?? []) {
-        const extraId = sourceOf(extra?.comment);
-        if (extraId && extra?.comment) {
-          decisions.set(extraId, enrichDecision({ ...extra, target: null, block: extra.block }));
-        }
-      }
-      publish(false);
-    } catch {
+      if (guard.settingsRevision !== settingsRevision) return;
+      // Replay in arrival order. A late response must never mutate a newer
+      // open question, or apply its numbered match to a different context.
+      llmOutcomes.set(sourceId, { result, contextKey: job.contextKey });
+      if (llmJobs.get(sourceId) === job) llmJobs.delete(sourceId);
+      rebuildFromRecords();
+      publish(true);
+    } catch (err) {
+      if (job.controller.signal.aborted) return;
+      console.warn(`${TAG} classification failed; question kept visible.`, err);
       llmFailures = llmFailures.filter((t) => Date.now() - t < LLM_FAIL_WINDOW_MS);
       llmFailures.push(Date.now());
       if (llmFailures.length >= 3) {
@@ -524,7 +646,6 @@ export function startSession(deps) {
   /* ----------------------------------------------------- settings rebuild */
 
   function rebuildFromRecords() {
-    rebuildEpoch += 1;
     state = stateMod.createState();
     decisions.clear();
     const ordered = admission.records().slice().sort((a, b) => a.admissionSeq - b.admissionSeq);
@@ -537,7 +658,8 @@ export function startSession(deps) {
       };
       objectSource.set(copy, record.sourceId);
       let decision = grouping.processComment(copy, state, config);
-      const prior = config.LLM_ENABLED ? llmOutcomes.get(record.sourceId) : null;
+      const cached = config.LLM_ENABLED ? llmOutcomes.get(record.sourceId) : null;
+      const prior = cached?.contextKey === reviewKey(copy, decision) ? cached.result : null;
       if (prior) {
         const next = grouping.applyLlmOverride(decision, prior, state, config);
         if (next) {
@@ -559,6 +681,9 @@ export function startSession(deps) {
 
   function resetSession({ reseed = true } = {}) {
     sessionEpoch += 1;
+    cancelLlm();
+    llmFailures = [];
+    llmPausedUntil = 0;
     admission.reset();
     state = stateMod.createState();
     decisions.clear();
@@ -578,25 +703,40 @@ export function startSession(deps) {
 
   /* --------------------------------------------------------------- publish */
 
-  function liveElementFor(record) {
+  function nativeIndex() {
+    const byFingerprint = new Map();
+    const liveByNode = new Map();
+    const claimed = new Set();
+    for (const node of container ? dom.collectCommentNodes(container) : []) {
+      let live;
+      try { live = dom.extractComment(node); }
+      catch {
+        if (!nativeReadWarned) {
+          nativeReadWarned = true;
+          console.warn(`${TAG} native comment could not be read; skipping affected display actions.`);
+        }
+        continue;
+      }
+      if (!live) continue;
+      liveByNode.set(node, live);
+      const fp = fingerprintOf(live);
+      if (!byFingerprint.has(fp)) byFingerprint.set(fp, []);
+      byFingerprint.get(fp).push(node);
+    }
+    for (const [id, anchor] of anchors) {
+      if (!dom.commentMatches(liveByNode.get(anchor.el), admission.getRecord(id))) anchor.el = null;
+      else claimed.add(anchor.el);
+    }
+    return { byFingerprint, liveByNode, claimed };
+  }
+
+  function liveElementFor(record, index = nativeIndex()) {
     if (!record) return null;
     const held = anchors.get(record.sourceId);
     const ownEl = held?.el?.isConnected ? held.el : null;
-    let ownMatches = false;
-    if (ownEl) {
-      try {
-        ownMatches = dom.commentMatches(dom.extractComment(ownEl), record);
-      } catch {
-        ownMatches = false;
-      }
-    }
-    const matches = container ? dom.findMatchingCommentNodes(container, record) : [];
-    const claimed = new Set();
-    for (const [id, anchor] of anchors) {
-      if (id === record.sourceId || !anchor?.el?.isConnected) continue;
-      claimed.add(anchor.el);
-    }
-    return pickLiveMatch({ ownEl, ownMatches, matches, claimed });
+    const ownMatches = dom.commentMatches(index.liveByNode.get(ownEl), record);
+    const matches = index.byFingerprint.get(fingerprintOf(record)) ?? [];
+    return pickLiveMatch({ ownEl, ownMatches, matches, claimed: index.claimed });
   }
 
   function bindOwnAnchor(sourceId, el) {
@@ -616,7 +756,7 @@ export function startSession(deps) {
     return ownerIdForElement(el, holdings, fallbackId);
   }
 
-  function featureCandidateFrom(preferredId, extraIds = [], wantOn) {
+  function featureCandidateFrom(preferredId, extraIds = [], wantOn, index = nativeIndex()) {
     const prefRec = admission.getRecord(preferredId);
     const ids = [preferredId];
     for (const id of extraIds) {
@@ -624,7 +764,7 @@ export function startSession(deps) {
     }
     const candidates = ids.map((id) => {
       const rec = admission.getRecord(id);
-      const el = rec ? liveElementFor(rec) : null;
+      const el = rec ? liveElementFor(rec, index) : null;
       const button = el ? dom.findShowButton(el) : null;
       return {
         id,
@@ -653,20 +793,21 @@ export function startSession(deps) {
   }
 
   function currentProjection() {
+    const index = nativeIndex();
     const projection = panelModel.buildViewRows(admission.records(), decisions, config);
     for (const row of projection.rows) {
       const groupIds = panelModel.featureIdsForRow(row);
       const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
       const sourceId =
-        featureCandidateFrom(onAirId(groupIds) ?? groupIds[0], groupIds, groupShown === "unknown") ??
+        featureCandidateFrom(onAirId(groupIds) ?? groupIds[0], groupIds, groupShown === "unknown", index) ??
         groupIds[0];
       const record = admission.getRecord(sourceId);
-      const liveEl = liveElementFor(record);
+      const liveEl = liveElementFor(record, index);
       bindOwnAnchor(sourceId, liveEl);
       const avail = panelModel.featureAvailability({
-        enabled: config.FEATURE_PROXY_ENABLED === true,
+        enabled: masterEnabled && config.FEATURE_PROXY_ENABLED === true,
         sidebar: config.PANEL_MODE === "sidebar",
-        anchorOk: !!liveEl?.isConnected,
+        anchorOk: !!liveEl?.isConnected && !!dom.findShowButton(liveEl) && !dom.findShowButton(liveEl).disabled,
         shown: groupShown,
       });
       row.feature = {
@@ -786,6 +927,8 @@ export function startSession(deps) {
             wsState,
             effectiveSource: snap.effectiveSource,
             enabled: masterEnabled,
+            settingsError,
+            llmUnavailable: config.LLM_ENABLED && Date.now() < llmPausedUntil,
           })
         );
       } catch {
@@ -799,7 +942,17 @@ export function startSession(deps) {
     const type = message.type;
     // The open port is the bind. Reset must not depend on a prior snapshot.
     if (type === protocol.MESSAGE_TYPES.RESET_SESSION && ports.has(port)) {
+      const check = protocol.validatePortMessage(message, { documentToken, sessionEpoch });
+      if (!check.ok || typeof message.requestId !== "string") {
+        port.postMessage(protocol.makeEnvelope(protocol.MESSAGE_TYPES.RESET_RESULT, {
+          documentToken, sessionEpoch, requestId: message.requestId ?? null, ok: false,
+        }));
+        return;
+      }
       resetSession();
+      port.postMessage(protocol.makeEnvelope(protocol.MESSAGE_TYPES.RESET_RESULT, {
+        documentToken, sessionEpoch, requestId: message.requestId, ok: true,
+      }));
       return;
     }
     if (protocol.isUnboundHandshake(message)) {
@@ -856,6 +1009,7 @@ export function startSession(deps) {
   }
 
   async function handleFeatureRequest(request) {
+    if (!masterEnabled || location.origin + location.pathname !== lastHref) return refuse("featureFindNative");
     const validation = protocol.validateFeatureRequest(request);
     if (!validation.ok) return refuse("featureFindNative");
     if (request.documentToken !== documentToken || request.sessionEpoch !== sessionEpoch) {
@@ -879,11 +1033,12 @@ export function startSession(deps) {
     const { rows } = panelModel.buildViewRows(admission.records(), decisions, config);
     const groupIds = panelModel.featureGroupIdsForClick(sourceId, rows);
     const groupShown = groupShownState(groupIds.map((id) => admission.getRecord(id)?.shown));
+    const index = nativeIndex();
     sourceId =
-      featureCandidateFrom(onAirId(groupIds) ?? sourceId, groupIds, groupShown === "unknown") ??
+      featureCandidateFrom(onAirId(groupIds) ?? sourceId, groupIds, groupShown === "unknown", index) ??
       sourceId;
     const record = admission.getRecord(sourceId);
-    const liveEl = liveElementFor(record);
+    const liveEl = liveElementFor(record, index);
     if (liveEl) restoreRow(liveEl);
     bindOwnAnchor(sourceId, liveEl);
     const ownerId = sourceIdOwning(liveEl, sourceId);
@@ -892,13 +1047,13 @@ export function startSession(deps) {
       return finish(request.requestId, refuse("featureFindNative"));
     }
     const anchorConnected = !!liveEl?.isConnected;
-    const live = anchorConnected ? dom.extractComment(liveEl) : null;
+    const live = anchorConnected ? index.liveByNode.get(liveEl) : null;
     let twinCount = 0;
     if (live) {
       for (const [otherId, other] of anchors) {
         if (otherId === sourceId || !other?.el?.isConnected) continue;
         if (sameFeatureGroup(sourceId, otherId, decisions.get(sourceId), decisions.get(otherId))) continue;
-        const otherLive = dom.extractComment(other.el);
+        const otherLive = index.liveByNode.get(other.el);
         if (
           otherLive &&
           (otherLive.platform ?? "") === (live.platform ?? "") &&
@@ -1067,6 +1222,8 @@ export function startSession(deps) {
       publish(true);
     }
   }
+
+  start();
 }
 
 function randomToken() {
