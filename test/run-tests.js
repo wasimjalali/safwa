@@ -879,6 +879,26 @@ test("rejects garbage", () => {
   assert.equal(parseLlmResponse('{"classification":"maybe"}'), null);
 });
 
+test("honorifics with alef variants strip after letter folding", () => {
+  assert.equal(key("آقای حکم نماز چیست؟"), key("حکم نماز چیست؟"));
+});
+test("Arabic-keyboard connector starts a genuine continuation", () => {
+  const state = createState();
+  processComment(comment("کریم", "youtube", "سوال من درباره میراث است؟", 1000), state, CONFIG);
+  const next = processComment(comment("کریم", "youtube", "كه شامل خانه هم میشود", 2000), state, CONFIG);
+  assert.equal(next.type, "continuation");
+});
+test("a duplicate first question still consumes the person's question slot", () => {
+  const state = createState();
+  processComment(comment("احمد", "youtube", "حکم نماز چیست؟", 1000), state, CONFIG);
+  assert.equal(processComment(comment("کریم", "youtube", "حکم نماز چیست؟", 2000), state, CONFIG).type, "duplicate");
+  assert.equal(processComment(comment("کریم", "youtube", "حکم روزه چیست؟", 100000), state, CONFIG).type, "extra");
+});
+test("non-text AI responses fail open", () => {
+  assert.equal(parseLlmResponse({ classification: "duplicate" }), null);
+  assert.equal(parseLlmResponse(42), null);
+});
+
 // =====================================================================
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed > 0 ? 1 : 0;

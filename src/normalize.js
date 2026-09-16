@@ -118,7 +118,7 @@ export function foldHandle(handle) {
 function stripLeadingHonorifics(key, honorifics) {
   if (!honorifics || honorifics.length === 0) return key;
 
-  const phrases = [...honorifics].sort(
+  const phrases = [...honorifics].map(foldHandle).sort(
     (a, b) => b.split(" ").length - a.split(" ").length || b.length - a.length
   );
 

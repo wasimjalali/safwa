@@ -64,6 +64,7 @@
       });
     })
     .catch((err) => {
+      globalThis.__safwaContentBooted = false;
       console.warn(`${TAG} failed to load v2 modules; doing nothing (fail-safe).`, err);
     });
 })();

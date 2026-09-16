@@ -247,7 +247,7 @@ export function buildViewRows(records, decisions, config) {
       folded.push(memberShape(record));
       continue;
     }
-    if (type === "duplicate" && collapseDups) continue; // folded onto the target below
+    if (type === "duplicate" && collapseDups && !decision.pendingReview) continue;
 
     if (type === "continuation") {
       const headId = headIdOf(decision);
@@ -288,7 +288,7 @@ export function buildViewRows(records, decisions, config) {
   for (const record of bySource.values()) {
     if (!collapseDups) break;
     const { decision } = rowBySource.get(record.sourceId);
-    if (decision?.type !== "duplicate") continue;
+    if (decision?.type !== "duplicate" || decision.pendingReview) continue;
     const targetId = decision.targetSourceId;
     const targetIndex = aroundIndex(rows, rowIndexBySource, targetId);
     if (targetIndex === -1) {

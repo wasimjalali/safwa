@@ -85,9 +85,9 @@ function endsWithConnector(text, connectors) {
 function hasExplicitMarker(prev, next, config) {
   const markers = config.EXPLICIT_CONTINUATION_WORDS ?? [];
   if (markers.length === 0) return false;
-  const first = firstWord(next).toLowerCase();
+  const first = firstWord(normalize(next, config).foldedKey);
   if (markers.includes(first)) return true;
-  const prevWords = prev.trim().toLowerCase().match(/[\p{L}\p{N}']+/gu);
+  const prevWords = normalize(prev, config).foldedKey.match(/[\p{L}\p{N}']+/gu);
   const last = prevWords ? prevWords[prevWords.length - 1] : "";
   return markers.includes(last);
 }
@@ -117,16 +117,16 @@ export function isContinuation(block, comment, config) {
   const limit = hasExplicitMarker(prev, next, config)
     ? Math.max(config.EXPLICIT_CONTINUATION_MS, config.CONTINUATION_WINDOW_MS)
     : config.CONTINUATION_WINDOW_MS;
-  if (gap > limit) return false;
+  if (gap < 0 || gap > limit) return false;
 
   const cueNoTerminal = prev.length > 0 && !config.TERMINAL_PUNCTUATION.includes(lastChar(prev));
   const cueConnectorEnd =
-    config.SENTENCE_COMMA.includes(lastChar(prev)) || endsWithConnector(prev, config.CONNECTOR_WORDS);
+    config.SENTENCE_COMMA.includes(lastChar(prev)) || endsWithConnector(normalize(prev, config).foldedKey, config.CONNECTOR_WORDS);
   const cueNearLimit = prev.length >= config.NEAR_LIMIT_CHARS;
 
   const fw = firstWord(next);
   const startsLowercase = fw.length > 0 && fw[0] === fw[0].toLowerCase() && fw[0] !== fw[0].toUpperCase();
-  const startsWithConnector = config.CONNECTOR_WORDS.includes(fw.toLowerCase());
+  const startsWithConnector = config.CONNECTOR_WORDS.includes(firstWord(normalize(next, config).foldedKey));
   const cueNewStart = startsLowercase || startsWithConnector;
 
   return cueNoTerminal || cueConnectorEnd || cueNearLimit || cueNewStart;
@@ -335,6 +335,10 @@ export function processComment(comment, state, config, opts = {}) {
       count: dup.entry.count,
     };
     if (dup.kind === "exact") {
+      if (!record.hasPrimaryQuestion) {
+        record.hasPrimaryQuestion = true;
+        setOpen(record, openBlock(comment, "question"));
+      }
       collapseOnto(dup.entry, comment);
       decision.count = dup.entry.count;
       return decision;
@@ -447,6 +451,10 @@ export function applyLlmOverride(decision, llmResult, state, config) {
       const target =
         resolveDuplicateTarget(decision, llmResult, state) ?? decision.target;
       if (!target) return decision;
+      if (!record.hasPrimaryQuestion) {
+        record.hasPrimaryQuestion = true;
+        setOpen(record, openBlock(decision.comment, "question"));
+      }
       collapseOnto(target, decision.comment);
       return {
         type: "duplicate",
