@@ -212,6 +212,21 @@ function hideExtraFragments(block, exceptComment) {
 }
 
 function resolveDuplicateTarget(decision, llmResult, state) {
+  // A session-produced verdict carries the target bound at request time
+  // (targetMatchKey). A provided binding is resolved strictly: the signature
+  // itself, or the tombstone redirect left when it was folded into another
+  // question. Never fall back to a list position once a binding exists -
+  // recentQuestions may have reordered or shrunk since.
+  if (llmResult && "targetMatchKey" in llmResult) {
+    const key = llmResult.targetMatchKey;
+    if (!key) return null;
+    const direct = state.signatures.get(key);
+    if (direct) return direct;
+    const forwarded = state.redirects?.get(key);
+    return (forwarded && state.signatures.get(forwarded)) ?? null;
+  }
+  // Legacy callers (tests, tools) pass only a positional match index against
+  // the decision's current recentQuestions.
   const qs = decision.recentQuestions || [];
   const match = Number(llmResult?.match);
   if (Number.isInteger(match) && match >= 1 && match <= qs.length) {
@@ -233,6 +248,9 @@ function collapseAsSemantic(decision, llmResult, state) {
   const target = resolveDuplicateTarget(decision, llmResult, state);
   if (!target) return null;
   if (decision.comment.matchKey && decision.comment.matchKey !== target.matchKey) {
+    // Tombstone: a stored verdict or a later identical comment that names this
+    // key must land on the surviving question, not on whatever re-registers it.
+    state.redirects?.set(decision.comment.matchKey, target.matchKey);
     unregisterSignature(decision.comment.matchKey, state);
   }
   collapseOnto(target, decision.comment);
@@ -367,7 +385,7 @@ function greetingDecision(comment, config) {
   return { type: "greeting", comment, hide: config.HIDE_GREETINGS !== false };
 }
 
-function resolvedDecision(decision) {
+export function resolvedDecision(decision) {
   const resolved = { ...decision };
   delete resolved.needsLlmReview;
   delete resolved.reviewKind;
@@ -406,7 +424,7 @@ export function applyLlmOverride(decision, llmResult, state, config) {
     const record = getOrCreateHandle(state, identityKey(decision.comment));
     // A later real question already took the slot. Promoting this leftover
     // would mark it extra and risk hiding a blessing. Leave the regex look.
-    if (record.hasPrimaryQuestion) return decision;
+    if (record.hasPrimaryQuestion) return resolvedDecision(decision);
     return resolvedDecision(processComment(decision.comment, state, config, { skipCourtesy: true }));
   }
 
@@ -433,7 +451,8 @@ export function applyLlmOverride(decision, llmResult, state, config) {
   if (decision.type === "duplicate" && decision.kind === "fuzzy") {
     if (classification === "duplicate") {
       const target =
-        resolveDuplicateTarget(decision, llmResult, state) ?? decision.target;
+        resolveDuplicateTarget(decision, llmResult, state) ??
+        ("targetMatchKey" in llmResult ? null : decision.target);
       if (!target) return decision;
       if (!record.hasPrimaryQuestion) {
         record.hasPrimaryQuestion = true;
@@ -484,7 +503,13 @@ export function applyLlmOverride(decision, llmResult, state, config) {
         previousBlock?.hideConfirmed ||
         !canMergeMore(previousBlock, config)
       ) {
-        return decision;
+        // The model answered but the merge is not allowed (fragment cap, the
+        // previous question already hidden, joins off). Settle the row as a
+        // visible flagged extra instead of pending on it forever.
+        return resolvedDecision(decision);
+      }
+      if (decision.comment.matchKey && previousBlock?.matchKey) {
+        state.redirects?.set(decision.comment.matchKey, previousBlock.matchKey);
       }
       unregisterSignature(decision.comment.matchKey, state);
       const extraBlock = decision.block;

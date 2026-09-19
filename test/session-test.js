@@ -143,6 +143,8 @@ await check("pending fuzzy duplicates remain visible when AI is offline", async 
   await h.add("@b", "حکم نماز خواندن در حال سفر طولانی با خانواده چیست امروز؟");
   assert.equal(h.snapshot().rows.length, 2);
   assert.equal(h.snapshot().folded.length, 0);
+  // A duplicate decision keeps pendingReview even with AI off - the flag is
+  // what keeps an unconfirmed fuzzy candidate visible instead of folding it.
   assert.equal(h.snapshot().rows[1].badges.pendingReview, true);
 });
 await check("reobserving identical mounted comments does not inflate counts", async () => {
@@ -277,7 +279,7 @@ await check("startup setting changes preserve unrelated saved off preferences", 
   await h.setting(STORAGE_KEYS.enabled, true);
   assert.equal(h.snapshot().rows.length, 1, "saved greetings-off must survive startup race");
 });
-await check("out-of-order AI results re-review changed context without hiding the row", async () => {
+await check("out-of-order AI results apply via their bound target despite reordering", async () => {
   const jobs = [];
   const h = await harness({ ai: true, classify: (comment, context) => new Promise(resolve => jobs.push({ comment, context, resolve })) });
   await h.add("@a", "نماز چند رکعت است؟");
@@ -286,13 +288,97 @@ await check("out-of-order AI results re-review changed context without hiding th
   assert.equal(jobs.length, 2);
   jobs[0].resolve({ classification: "duplicate", match: 1 });
   await h.tick();
+  // @c's verdict named position 1 of ITS request-time context - @a's
+  // signature, bound as targetMatchKey at completion. @b's collapse
+  // reordered the room but cannot divert the verdict to another question.
   jobs[1].resolve({ classification: "duplicate", match: 1 });
   await h.tick();
-  assert.equal(jobs.length, 3, "changed context receives a replacement review");
-  assert(h.snapshot().rows.some(row => row.primary.handle === "@c"));
+  assert.equal(jobs.length, 2, "unrelated churn must not re-issue reviews");
+  const { rows } = h.snapshot();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].badges.count, 3);
+  assert(rows[0].members.some(m => m.displayText === "حکم زکات چیست؟"));
+});
+await check("a verdict bound to a folded target follows the tombstone redirect", async () => {
+  const jobs = [];
+  const h = await harness({ ai: true, classify: (comment, context) => new Promise(resolve => jobs.push({ comment, context, resolve })) });
+  await h.add("@a", "حکم نماز چیست؟");
+  await h.add("@b", "حکم روزه چیست؟");
+  await h.add("@c", "حکم زکات چیست؟");
+  // @c's review names @b (position 2 of [a,b]) but resolves only after @b's
+  // own verdict folded @b into @a and unregistered its signature.
+  jobs[0].resolve({ classification: "duplicate", match: 1 });
+  await h.tick();
+  jobs[1].resolve({ classification: "duplicate", match: 2 });
+  await h.tick();
+  const { rows } = h.snapshot();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].badges.count, 3, "the verdict follows the tombstone to @a");
+});
+await check("a new candidate entering room context invalidates a stored negative verdict", async () => {
+  const jobs = [];
+  const h = await harness({ ai: true, classify: (comment, context) => new Promise(resolve => jobs.push({ comment, context, resolve })) });
+  await h.add("@a", "حکم نماز خواندن در حال سفر طولانی با خانواده چیست؟");
+  await h.add("@x", "حکم نماز خواندن در حال سفر طولانی با خانواده چیست امروز؟");
+  await h.add("@b", "حکم روزه چیست؟");
+  assert.equal(jobs.length, 2);
+  jobs[1].resolve({ classification: "primary" });
+  await h.tick();
+  jobs[0].resolve({ classification: "primary" });
+  await h.tick();
+  // @b's stored "primary" verdict was made before @x registered - the new
+  // candidate invalidates it and exactly one replacement review is queued.
+  assert.equal(jobs.length, 3, "a new candidate triggers one replacement review");
   jobs[2].resolve({ classification: "primary" });
   await h.tick();
-  assert(h.snapshot().rows.some(row => row.primary.handle === "@c"));
+  assert.equal(jobs.length, 3, "settled verdicts are not re-issued");
+});
+await check("a settled verdict survives unrelated room churn without re-review", async () => {
+  const jobs = [];
+  const h = await harness({ ai: true, classify: (comment, context) => new Promise(resolve => jobs.push({ comment, context, resolve })) });
+  await h.add("@a", "حکم نماز چیست؟");
+  await h.add("@b", "حکم روزه چیست؟");
+  await h.add("@b", "حکم حج چیست؟");
+  await h.add("@c", "نماز در سفر چگونه است؟");
+  assert.equal(jobs.length, 2);
+  jobs[1].resolve({ classification: "extra" });
+  await h.tick();
+  assert.equal(jobs.length, 3, "the queued room review starts once a slot frees");
+  jobs[0].resolve({ classification: "duplicate", match: 1 });
+  await h.tick();
+  // @b's collapse unregistered a signature inside @c's and the extra's
+  // candidate context - removals and reorderings must not invalidate.
+  assert.equal(jobs.length, 3, "settled verdicts are not re-issued on unrelated churn");
+  const { folded } = h.snapshot();
+  assert(folded.some(row => row.displayText === "حکم حج چیست؟"), "confirmed extra stays folded");
+  jobs[2].resolve({ classification: "primary" });
+  await h.tick();
+  assert.equal(jobs.length, 3);
+});
+await check("a consumed verdict that cannot apply re-reviews within budget", async () => {
+  const jobs = [];
+  const h = await harness({ ai: true, classify: (comment, context) => new Promise(resolve => jobs.push({ comment, context, resolve })) });
+  await h.add("@a", "حکم نماز چیست؟");
+  await h.add("@b", "حکم روزه چیست؟");
+  // match 5 is out of range for a one-question context: the binding resolves
+  // to nothing, so the verdict cannot be applied.
+  jobs[0].resolve({ classification: "duplicate", match: 5 });
+  await h.tick();
+  assert.equal(jobs.length, 2, "an inapplicable verdict re-reviews within budget");
+  jobs[1].resolve({ classification: "primary" });
+  await h.tick();
+  assert.equal(jobs.length, 2);
+});
+await check("a continuation verdict that cannot merge settles instead of pending", async () => {
+  const h = await harness({ ai: true, classify: async (_c, _r, _cfg, ctx) =>
+    ctx.reviewKind === "same_person" ? { classification: "continuation" } : { classification: "primary" } });
+  await h.add("@a", "سوال اول در مورد نماز است");
+  await h.add("@a", "و ادامه سوال در مورد روزه");
+  await h.add("@a", "و بخش سوم سوال");
+  const { rows } = h.snapshot();
+  assert.equal(rows.length, 2);
+  assert(!rows[1].badges.pendingReview, "a rejected merge settles the extra");
+  assert.equal(rows[1].badges.secondQuestion, true);
 });
 await check("failed startup preferences recover fully before capture or AI resumes", async () => {
   let classifications = 0;
@@ -329,7 +415,7 @@ await check("queued AI reviews survive slow earlier requests", async () => {
   assert.equal(h.snapshot().rows.length, 4);
 });
 
-await check("outage pause resumes queued reviews without another comment", async () => {
+await check("outage pause resumes queued reviews and bounded retries drain", async () => {
   const jobs = [];
   const h = await harness({ ai: true, classify: () => new Promise(resolve => jobs.push(resolve)) });
   await h.add("@a", "حکم نماز چیست؟");
@@ -345,7 +431,14 @@ await check("outage pause resumes queued reviews without another comment", async
   jobs[3]({ classification: "primary" });
   jobs[4]({ classification: "primary" });
   await h.tick();
-  assert.equal(jobs.length, 5, "replay must not repeatedly retry unchanged failed requests");
+  // The delayed retry pass requeues the three failed reviews once; they are
+  // the only extra calls - a stored verdict is never re-requested.
+  let cursor = 5;
+  while (cursor < jobs.length) {
+    jobs[cursor++]({ classification: "primary" });
+    await h.tick();
+  }
+  assert.equal(jobs.length, 8, "three failed reviews retry exactly once here");
   assert.equal(h.snapshot().rows.length, 6);
 });
 
@@ -364,7 +457,29 @@ await check("slow consecutive failures still trigger the outage pause", async ()
   assert.equal(jobs.length, 5, "the paused queue must resume on its timer");
   jobs[3]({ classification: "primary" });
   jobs[4]({ classification: "primary" });
-  await h.tick();
+  let cursor = 5;
+  while (cursor < jobs.length) {
+    jobs[cursor++]({ classification: "primary" });
+    await h.tick();
+  }
+  assert(jobs.length <= 6 * 4, "retries stay bounded by the per-source cap");
+});
+
+await check("a failed review retries up to the attempt cap then settles visible", async () => {
+  let calls = 0;
+  const h = await harness({ ai: true, classifyFirst: true,
+    classify: async () => { calls++; return null; } });
+  await h.add("@a", "حکم نماز چیست؟");
+  // attempt 1 fails; the delayed pass retries while the budget lasts. The
+  // outage pause after the third consecutive failure delays the last attempt.
+  await h.tick(16000);
+  await h.tick(16000);
+  await h.tick(16000);
+  await h.tick(61000);
+  await h.tick(16000);
+  assert.equal(calls, 4, "attempts are capped at LLM_MAX_ATTEMPTS");
+  assert(!h.snapshot().rows[0].badges.pendingReview,
+    "an exhausted review settles instead of pending forever");
 });
 
 await check("master off cancels a scheduled outage recovery", async () => {
