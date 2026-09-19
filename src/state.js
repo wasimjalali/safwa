@@ -27,6 +27,10 @@ export function createState() {
     // rolling list of recent distinct matchKeys for fuzzy comparison, capped at
     // DEDUP_BUFFER_SIZE (oldest dropped first).
     recentKeys: [],
+    // matchKey -> matchKey tombstones. When a semantic collapse unregisters a
+    // signature, its key forwards to the surviving question's key so stored
+    // verdicts and later identical comments still resolve to that question.
+    redirects: new Map(),
   };
 }
 

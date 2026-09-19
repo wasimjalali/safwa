@@ -71,6 +71,15 @@ export function checkDuplicate(matchKey, state, config) {
   const exact = state.signatures.get(matchKey);
   if (exact) return { isDuplicate: true, entry: exact, kind: "exact" };
 
+  // Tombstone: this exact text was previously folded into another question by
+  // an LLM verdict and its signature unregistered. Forward to the surviving
+  // entry so the copy collapses without spending another review.
+  const forwarded = state.redirects?.get(matchKey);
+  if (forwarded) {
+    const target = state.signatures.get(forwarded);
+    if (target) return { isDuplicate: true, entry: target, kind: "exact" };
+  }
+
   // Fuzzy: compare only against the recent buffer (bounded work, spec 9).
   const incomingTokens = tokensOf(matchKey);
   const useLevenshtein =

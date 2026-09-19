@@ -152,9 +152,14 @@ export function startSession(deps) {
           settingsRevision += 1;
           masterEnabled = changes[STORAGE_KEYS.enabled].newValue !== false;
           cancelLlm();
-          if (masterEnabled && container?.isConnected) {
-            for (const node of dom.collectCommentNodes(container)) pending.add(node);
-            schedule();
+          if (masterEnabled) {
+            if (container?.isConnected) {
+              for (const node of dom.collectCommentNodes(container)) pending.add(node);
+              schedule();
+            }
+            // Reviews cancelled by master-off resume here: rebuilding
+            // requeues eligible pending decisions and settles the rest.
+            rebuildFromRecords();
           }
           publish(false);
           publishHealth();
@@ -482,12 +487,12 @@ export function startSession(deps) {
       timestamp: admission.getRecord(sourceId).admittedAt,
     };
     objectSource.set(copy, sourceId);
-    const decision = grouping.processComment(copy, state, config);
+    let decision = grouping.processComment(copy, state, config);
+    if (decision.needsLlmReview && !scheduleLlm(copy, decision, sourceId)) {
+      decision = settleReview(decision);
+    }
     storeDecision(sourceId, decision);
     publish(false);
-    if (decision.needsLlmReview && config.LLM_ENABLED) {
-      scheduleLlm(copy, decision, sourceId);
-    }
   }
 
   function storeDecision(sourceId, decision) {
@@ -529,6 +534,13 @@ export function startSession(deps) {
   const LLM_MAX_IN_FLIGHT = 2;
   const LLM_QUEUE_MAX = 20;
   const LLM_PAUSE_MS = 60000;
+  // Total classification attempts per comment per epoch, counted when an
+  // attempt completes. Cumulative across context changes so a drifting
+  // context cannot mint a fresh retry budget.
+  const LLM_MAX_ATTEMPTS = 4;
+  // A failed review produces no rebuild of its own; one delayed pass requeues
+  // retryable failures and settles the ones that are out of budget.
+  const LLM_RETRY_DELAY_MS = 15000;
   // Allow a full bounded queue to drain at the request deadline, including
   // one outage pause. Queue waiting time is separate from the fetch timeout.
   const LLM_ADMISSION_TTL_MS =
@@ -539,35 +551,107 @@ export function startSession(deps) {
   let consecutiveLlmFailures = 0;
   let llmPausedUntil = 0;
   let llmResumeTimer = null;
+  let llmRetryTimer = null;
 
   function cancelLlm() {
     clearTimeout(llmResumeTimer);
     llmResumeTimer = null;
+    clearTimeout(llmRetryTimer);
+    llmRetryTimer = null;
     llmQueue.length = 0;
     for (const job of llmJobs.values()) job.controller.abort();
     llmJobs.clear();
   }
 
-  function reviewKey(comment, decision) {
-    return JSON.stringify([comment.displayText,
-      llm.llmContextFromDecision(comment, decision), decision.recentQuestions]);
+  // A verdict's applicability is keyed on stable identity only: the comment
+  // text, the review kind, the previous-question block's head comment
+  // (same_person) and whether continuations were allowed. The numbered
+  // recentQuestions list is deliberately not part of the key: it reorders and
+  // unregisters on every applied verdict, and keying on it caused re-review
+  // churn measured at ~8x calls on a real-session replay. Room-context
+  // validity is checked per outcome by outcomeApplicable instead.
+  function prevHeadId(decision) {
+    const head = decision.previousBlock?.fragments?.[0];
+    return head ? objectSource.get(head) ?? null : null;
   }
 
-  function scheduleLlm(comment, decision, sourceId) {
-    if (!masterEnabled || !config.LLM_ENABLED || llmJobs.has(sourceId)) return;
+  function appliesKey(comment, decision) {
+    return JSON.stringify([
+      comment.displayText,
+      decision.reviewKind,
+      prevHeadId(decision),
+      decision.allowContinuation === false,
+    ]);
+  }
+
+  // The candidate set the model compared against, captured at request time.
+  // Courtesy reviews see no candidates. Order-independent on purpose: a
+  // reorder or removal does not invalidate a stored verdict.
+  function candidateSetFor(decision) {
+    if (decision.reviewKind === "courtesy") return null;
+    return new Set((decision.recentQuestions ?? []).map((q) => q.matchKey));
+  }
+
+  // Does a stored outcome still describe this decision? A negative verdict
+  // (primary / extra / continuation / greeting) stays valid while no NEW
+  // candidate has entered the room context - additions can turn a "primary"
+  // into a missed duplicate; removals and reorderings cannot. A "duplicate"
+  // verdict depends only on its bound target surviving (tombstones forward).
+  function outcomeApplicable(cached, comment, decision) {
+    if (!cached?.result) return false;
+    if (cached.appliesTo !== appliesKey(comment, decision)) return false;
+    if (cached.result.classification === "duplicate") return true;
+    if (!cached.candidates) return true;
+    for (const q of decision.recentQuestions ?? []) {
+      if (!cached.candidates.has(q.matchKey)) return false;
+    }
+    return true;
+  }
+
+  // A review that can never run again must not keep the row flagged pending.
+  // Duplicate decisions are exempt: pendingReview is what keeps an
+  // unconfirmed fuzzy candidate visible instead of folding it (pass 2 of
+  // buildViewRows treats a non-pending duplicate as confirmed).
+  function settleStoredDecision(sourceId) {
+    const stored = decisions.get(sourceId);
+    if (stored?.pendingReview && stored.type !== "duplicate") {
+      decisions.set(sourceId, { ...stored, pendingReview: false });
+      return true;
+    }
+    return false;
+  }
+
+  function settleReview(decision) {
+    if (!decision || decision.type === "duplicate") return decision;
+    return grouping.resolvedDecision(decision);
+  }
+
+  /**
+   * Queue a classification review for a pending decision.
+   * @returns {boolean} true while a review is queued, in-flight, or an
+   *   applicable verdict already exists - the row may still change. false
+   *   means no review will ever run for this context and the caller must
+   *   settle the decision instead of leaving it pending.
+   */
+  function scheduleLlm(comment, decision, sourceId, { force = false } = {}) {
+    if (!masterEnabled || !config.LLM_ENABLED) return false;
+    if (llmJobs.has(sourceId)) return true;
     const admittedAt = admission.getRecord(sourceId)?.admittedAt;
-    if (Date.now() - admittedAt > LLM_ADMISSION_TTL_MS) return;
-    const contextKey = reviewKey(comment, decision);
-    // A replay must not retry the same failed request after every other AI
-    // result. Changed context or a session reset can trigger a fresh review.
-    if (llmOutcomes.get(sourceId)?.contextKey === contextKey) return;
+    if (Date.now() - admittedAt > LLM_ADMISSION_TTL_MS) return false;
+    const cached = llmOutcomes.get(sourceId);
+    // An applicable verdict already covers this context; a stored outcome
+    // that no longer applies (new room candidates, a moved previous block, a
+    // consumed-but-inapplicable verdict) must not block a replacement review.
+    if (!force && outcomeApplicable(cached, comment, decision)) return true;
+    if ((cached?.attempts ?? 0) >= LLM_MAX_ATTEMPTS) return false;
     const job = {
       comment,
       decision,
       sourceId,
       admittedAt,
       sessionEpoch,
-      contextKey,
+      appliesTo: appliesKey(comment, decision),
+      candidates: candidateSetFor(decision),
       context: llm.llmContextFromDecision(comment, decision),
       controller: new AbortController(),
       settingsRevision,
@@ -580,6 +664,7 @@ export function startSession(deps) {
       console.warn(`${TAG} AI review queue full; comment kept visible.`);
     }
     drainLlm();
+    return true;
   }
 
   function drainLlm() {
@@ -600,6 +685,7 @@ export function startSession(deps) {
         if (llmJobs.get(job.sourceId) === job) llmJobs.delete(job.sourceId);
         if (!job.controller.signal.aborted && job.sessionEpoch === sessionEpoch) {
           console.warn(`${TAG} queued AI review expired; comment kept visible.`);
+          if (settleStoredDecision(job.sourceId)) publish(false);
         }
         continue;
       }
@@ -613,12 +699,31 @@ export function startSession(deps) {
   }
 
   function recordLlmFailure(job) {
-    llmOutcomes.set(job.sourceId, { result: null, contextKey: job.contextKey });
+    const prev = llmOutcomes.get(job.sourceId);
+    llmOutcomes.set(job.sourceId, {
+      result: null,
+      appliesTo: job.appliesTo,
+      candidates: job.candidates,
+      attempts: (prev?.attempts ?? 0) + 1,
+      failed: true,
+    });
     consecutiveLlmFailures += 1;
     if (consecutiveLlmFailures >= 3) {
       llmPausedUntil = Date.now() + LLM_PAUSE_MS;
       consecutiveLlmFailures = 0;
       console.warn(`${TAG} AI review paused for 60s after repeated failures; queued reviews will resume automatically.`);
+    }
+    // A failed review produces no rebuild on its own; schedule one delayed
+    // pass so bounded retries actually run (and exhausted ones settle)
+    // instead of pending forever.
+    if (llmRetryTimer === null) {
+      llmRetryTimer = setTimeout(() => {
+        llmRetryTimer = null;
+        if (masterEnabled && config.LLM_ENABLED) {
+          rebuildFromRecords();
+          publish(false);
+        }
+      }, LLM_RETRY_DELAY_MS);
     }
   }
 
@@ -633,7 +738,7 @@ export function startSession(deps) {
       contentText: comment.displayText,
     };
     try {
-      const result = await llm.classifyComment(
+      let result = await llm.classifyComment(
         comment,
         decision.recentQuestions,
         config,
@@ -652,8 +757,19 @@ export function startSession(deps) {
       if (record.displayText !== guard.contentText) return;
       if (guard.settingsRevision !== settingsRevision) return;
       // Replay in arrival order. A late response must never mutate a newer
-      // open question, or apply its numbered match to a different context.
-      llmOutcomes.set(sourceId, { result, contextKey: job.contextKey });
+      // open question. A positional match is bound to the signature it named
+      // AT REQUEST TIME - the list may have reordered or shrunk since.
+      if (result.classification === "duplicate") {
+        const snap = job.decision.recentQuestions ?? [];
+        const picked = Number.isInteger(result.match) ? snap[result.match - 1] : null;
+        result = { ...result, targetMatchKey: picked?.matchKey ?? null };
+      }
+      llmOutcomes.set(sourceId, {
+        result,
+        appliesTo: job.appliesTo,
+        candidates: job.candidates,
+        attempts: (llmOutcomes.get(sourceId)?.attempts ?? 0) + 1,
+      });
       if (llmJobs.get(sourceId) === job) llmJobs.delete(sourceId);
       rebuildFromRecords();
       publish(true);
@@ -680,9 +796,17 @@ export function startSession(deps) {
       objectSource.set(copy, record.sourceId);
       let decision = grouping.processComment(copy, state, config);
       const cached = config.LLM_ENABLED ? llmOutcomes.get(record.sourceId) : null;
-      const prior = cached?.contextKey === reviewKey(copy, decision) ? cached.result : null;
-      if (prior) {
-        const next = grouping.applyLlmOverride(decision, prior, state, config);
+      const base = decision;
+      const applicable = cached && outcomeApplicable(cached, copy, base);
+      // Holdover: the stored verdict's identity still matches but a new room
+      // candidate invalidated it. Apply it anyway so the row keeps its current
+      // fate (no hide -> pending -> hide flicker) while a replacement review
+      // runs against the fresh context.
+      const holdover =
+        !applicable && !!cached?.result && cached.appliesTo === appliesKey(copy, base);
+      let consumed = false;
+      if (applicable || holdover) {
+        const next = grouping.applyLlmOverride(base, cached.result, state, config);
         if (next) {
           decision = next;
           for (const extra of next.alsoRender ?? []) {
@@ -692,11 +816,18 @@ export function startSession(deps) {
             }
           }
         }
+        consumed = true;
+      }
+      // Schedule a (re)review when the base decision is still pending and no
+      // verdict was consumed, the consumed verdict could not apply (decision
+      // still pending), or a holdover verdict needs replacing. The request
+      // context always comes from the pre-override pending decision.
+      if (base.needsLlmReview && (holdover || !consumed || decision.needsLlmReview)) {
+        if (!scheduleLlm(copy, base, record.sourceId, { force: consumed })) {
+          decision = settleReview(decision);
+        }
       }
       storeDecision(record.sourceId, decision);
-      if (decision.needsLlmReview && config.LLM_ENABLED && !prior) {
-        scheduleLlm(copy, decision, record.sourceId);
-      }
     }
   }
 
